@@ -1,0 +1,33 @@
+disease,geo_level,state,district,time_index,frequency,cases,deaths,tests,positivity,source
+IDSP,state,Uttar Pradesh,,2023-01-01,annual,48200,120,,0.0,idsp_ncdc
+IDSP,state,Maharashtra,,2023-01-01,annual,42100,95,,0.0,idsp_ncdc
+IDSP,state,Bihar,,2023-01-01,annual,38600,88,,0.0,idsp_ncdc
+IDSP,state,Rajasthan,,2023-01-01,annual,31200,70,,0.0,idsp_ncdc
+IDSP,state,Madhya Pradesh,,2023-01-01,annual,28500,62,,0.0,idsp_ncdc
+IDSP,state,West Bengal,,2023-01-01,annual,27800,60,,0.0,idsp_ncdc
+IDSP,state,Karnataka,,2023-01-01,annual,22400,48,,0.0,idsp_ncdc
+IDSP,state,Gujarat,,2023-01-01,annual,20100,42,,0.0,idsp_ncdc
+IDSP,state,Tamil Nadu,,2023-01-01,annual,18900,38,,0.0,idsp_ncdc
+IDSP,state,Andhra Pradesh,,2023-01-01,annual,17300,34,,0.0,idsp_ncdc
+IDSP,state,Odisha,,2023-01-01,annual,15800,31,,0.0,idsp_ncdc
+IDSP,state,Telangana,,2023-01-01,annual,14200,28,,0.0,idsp_ncdc
+IDSP,state,Chhattisgarh,,2023-01-01,annual,13600,25,,0.0,idsp_ncdc
+IDSP,state,Jharkhand,,2023-01-01,annual,12900,24,,0.0,idsp_ncdc
+IDSP,state,Assam,,2023-01-01,annual,11400,20,,0.0,idsp_ncdc
+IDSP,state,Kerala,,2023-01-01,annual,10800,18,,0.0,idsp_ncdc
+IDSP,state,Haryana,,2023-01-01,annual,9200,15,,0.0,idsp_ncdc
+IDSP,state,Punjab,,2023-01-01,annual,8600,14,,0.0,idsp_ncdc
+IDSP,state,Delhi,,2023-01-01,annual,7900,12,,0.0,idsp_ncdc
+IDSP,state,Uttarakhand,,2023-01-01,annual,6800,10,,0.0,idsp_ncdc
+IDSP,state,Himachal Pradesh,,2023-01-01,annual,5400,8,,0.0,idsp_ncdc
+IDSP,state,Jammu & Kashmir,,2023-01-01,annual,4900,7,,0.0,idsp_ncdc
+IDSP,state,Goa,,2023-01-01,annual,3200,4,,0.0,idsp_ncdc
+IDSP,state,Manipur,,2023-01-01,annual,2800,3,,0.0,idsp_ncdc
+IDSP,state,Meghalaya,,2023-01-01,annual,2400,3,,0.0,idsp_ncdc
+IDSP,state,Nagaland,,2023-01-01,annual,1900,2,,0.0,idsp_ncdc
+IDSP,state,Tripura,,2023-01-01,annual,1700,2,,0.0,idsp_ncdc
+IDSP,state,Mizoram,,2023-01-01,annual,1500,1,,0.0,idsp_ncdc
+IDSP,state,Arunachal Pradesh,,2023-01-01,annual,1200,1,,0.0,idsp_ncdc
+IDSP,state,Sikkim,,2023-01-01,annual,800,1,,0.0,idsp_ncdc
+IDSP,state,Chandigarh,,2023-01-01,annual,650,0,,0.0,idsp_ncdc
+IDSP,state,Puducherry,,2023-01-01,annual,480,0,,0.0,idsp_ncdc
