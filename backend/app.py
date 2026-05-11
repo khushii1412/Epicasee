@@ -7,6 +7,8 @@ import numpy as np
 import warnings
 warnings.filterwarnings("ignore")
 
+from services.features import build_features
+
 app = Flask(__name__)
 CORS(app)
 
@@ -242,6 +244,43 @@ def comparison():
         return jsonify({"data": records})
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/features/preview")
+def features_preview():
+    """Generate and return a preview of engineered features for Dengue."""
+    try:
+        # 1. Load sample data (Dengue)
+        df = load_standardized("dengue")
+        
+        # 2. Build features
+        df_featured = build_features(df)
+        
+        # 3. Select requested columns
+        cols = [
+            "state", "district", "time_index", "cases", "deaths", 
+            "year", "quarter", "lag_1_cases", "rolling_mean_4", 
+            "growth_rate", "case_fatality_rate", "is_monsoon_quarter", 
+            "z_score_cases", "outbreak_intensity_score"
+        ]
+        
+        # Filter columns that actually exist (defensive)
+        available_cols = [c for c in cols if c in df_featured.columns]
+        preview = df_featured[available_cols].head(10).copy()
+        
+        # Convert time_index to string for readable JSON
+        if "time_index" in preview.columns:
+            preview["time_index"] = preview["time_index"].dt.strftime("%Y-%m-%d")
+        
+        # 4. Return as JSON
+        records = _json.loads(preview.to_json(orient="records"))
+        return jsonify({
+            "count": len(records),
+            "columns": available_cols,
+            "data": records
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
