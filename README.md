@@ -1,4 +1,4 @@
-# 🇮🇳 India Multi-Disease Epidemiology Framework
+#  India Multi-Disease Epidemiology Framework
 
 A comprehensive platform for tracking, analyzing, and visualizing epidemiological data across multiple diseases in India.
 
