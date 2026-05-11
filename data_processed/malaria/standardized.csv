@@ -1,0 +1,201 @@
+state,district,time_index,cases,deaths
+Assam,,2019-01-01,1235,1
+Assam,,2019-04-01,2469,0
+Assam,,2019-07-01,5555,1
+Assam,,2019-10-01,3086,0
+Assam,,2020-01-01,821,1
+Assam,,2020-04-01,1643,0
+Assam,,2020-07-01,3696,0
+Assam,,2020-10-01,2053,0
+Assam,,2021-01-01,592,1
+Assam,,2021-04-01,1182,0
+Assam,,2021-07-01,2660,1
+Assam,,2021-10-01,1478,0
+Assam,,2022-01-01,488,1
+Assam,,2022-04-01,975,0
+Assam,,2022-07-01,2194,0
+Assam,,2022-10-01,1219,0
+Assam,,2023-01-01,624,1
+Assam,,2023-04-01,1247,0
+Assam,,2023-07-01,2805,0
+Assam,,2023-10-01,1558,0
+Chhattisgarh,,2019-01-01,6082,1
+Chhattisgarh,,2019-04-01,12164,3
+Chhattisgarh,,2019-07-01,27370,7
+Chhattisgarh,,2019-10-01,15206,4
+Chhattisgarh,,2020-01-01,3667,4
+Chhattisgarh,,2020-04-01,7333,7
+Chhattisgarh,,2020-07-01,16500,15
+Chhattisgarh,,2020-10-01,9167,8
+Chhattisgarh,,2021-01-01,2973,2
+Chhattisgarh,,2021-04-01,5947,4
+Chhattisgarh,,2021-07-01,13380,8
+Chhattisgarh,,2021-10-01,7433,4
+Chhattisgarh,,2022-01-01,3003,2
+Chhattisgarh,,2022-04-01,6006,2
+Chhattisgarh,,2022-07-01,13513,5
+Chhattisgarh,,2022-10-01,7507,3
+Chhattisgarh,,2023-01-01,3171,0
+Chhattisgarh,,2023-04-01,6341,2
+Chhattisgarh,,2023-07-01,14268,4
+Chhattisgarh,,2023-10-01,7926,2
+Gujarat,,2019-01-01,564,1
+Gujarat,,2019-04-01,1129,0
+Gujarat,,2019-07-01,2539,0
+Gujarat,,2019-10-01,1411,0
+Gujarat,,2020-01-01,322,1
+Gujarat,,2020-04-01,644,0
+Gujarat,,2020-07-01,1448,0
+Gujarat,,2020-10-01,804,0
+Gujarat,,2021-01-01,277,1
+Gujarat,,2021-04-01,552,0
+Gujarat,,2021-07-01,1242,0
+Gujarat,,2021-10-01,690,0
+Gujarat,,2022-01-01,235,0
+Gujarat,,2022-04-01,469,0
+Gujarat,,2022-07-01,1055,0
+Gujarat,,2022-10-01,586,0
+Gujarat,,2023-01-01,312,1
+Gujarat,,2023-04-01,625,0
+Gujarat,,2023-07-01,1407,0
+Gujarat,,2023-10-01,782,0
+Jharkhand,,2019-01-01,2255,1
+Jharkhand,,2019-04-01,4509,1
+Jharkhand,,2019-07-01,10146,2
+Jharkhand,,2019-10-01,5637,1
+Jharkhand,,2020-01-01,1665,0
+Jharkhand,,2020-04-01,3331,2
+Jharkhand,,2020-07-01,7494,4
+Jharkhand,,2020-10-01,4163,2
+Jharkhand,,2021-01-01,1483,0
+Jharkhand,,2021-04-01,2964,1
+Jharkhand,,2021-07-01,6669,3
+Jharkhand,,2021-10-01,3705,2
+Jharkhand,,2022-01-01,1917,1
+Jharkhand,,2022-04-01,3833,1
+Jharkhand,,2022-07-01,8625,3
+Jharkhand,,2022-10-01,4792,2
+Jharkhand,,2023-01-01,3409,2
+Jharkhand,,2023-04-01,6817,4
+Jharkhand,,2023-07-01,15339,9
+Jharkhand,,2023-10-01,8522,5
+Karnataka,,2019-01-01,483,1
+Karnataka,,2019-04-01,965,0
+Karnataka,,2019-07-01,2172,0
+Karnataka,,2019-10-01,1207,0
+Karnataka,,2020-01-01,296,0
+Karnataka,,2020-04-01,591,0
+Karnataka,,2020-07-01,1329,0
+Karnataka,,2020-10-01,738,0
+Karnataka,,2021-01-01,219,1
+Karnataka,,2021-04-01,437,0
+Karnataka,,2021-07-01,984,0
+Karnataka,,2021-10-01,547,0
+Karnataka,,2022-01-01,188,0
+Karnataka,,2022-04-01,375,0
+Karnataka,,2022-07-01,844,0
+Karnataka,,2022-10-01,469,0
+Karnataka,,2023-01-01,254,1
+Karnataka,,2023-04-01,509,0
+Karnataka,,2023-07-01,1144,0
+Karnataka,,2023-10-01,636,0
+Madhya Pradesh,,2019-01-01,1935,0
+Madhya Pradesh,,2019-04-01,3868,1
+Madhya Pradesh,,2019-07-01,8703,2
+Madhya Pradesh,,2019-10-01,4835,1
+Madhya Pradesh,,2020-01-01,1192,1
+Madhya Pradesh,,2020-04-01,2386,1
+Madhya Pradesh,,2020-07-01,5368,2
+Madhya Pradesh,,2020-10-01,2982,1
+Madhya Pradesh,,2021-01-01,876,0
+Madhya Pradesh,,2021-04-01,1753,1
+Madhya Pradesh,,2021-07-01,3944,1
+Madhya Pradesh,,2021-10-01,2191,1
+Madhya Pradesh,,2022-01-01,922,0
+Madhya Pradesh,,2022-04-01,1843,1
+Madhya Pradesh,,2022-07-01,4147,2
+Madhya Pradesh,,2022-10-01,2304,1
+Madhya Pradesh,,2023-01-01,1245,1
+Madhya Pradesh,,2023-04-01,2491,1
+Madhya Pradesh,,2023-07-01,5604,2
+Madhya Pradesh,,2023-10-01,3113,1
+Maharashtra,,2019-01-01,892,0
+Maharashtra,,2019-04-01,1785,1
+Maharashtra,,2019-07-01,4016,1
+Maharashtra,,2019-10-01,2231,1
+Maharashtra,,2020-01-01,544,2
+Maharashtra,,2020-04-01,1086,2
+Maharashtra,,2020-07-01,2444,5
+Maharashtra,,2020-10-01,1358,3
+Maharashtra,,2021-01-01,1930,1
+Maharashtra,,2021-04-01,3861,1
+Maharashtra,,2021-07-01,8686,2
+Maharashtra,,2021-10-01,4826,1
+Maharashtra,,2022-01-01,787,0
+Maharashtra,,2022-04-01,1572,1
+Maharashtra,,2022-07-01,3537,2
+Maharashtra,,2022-10-01,1965,1
+Maharashtra,,2023-01-01,894,3
+Maharashtra,,2023-04-01,1788,5
+Maharashtra,,2023-07-01,4024,12
+Maharashtra,,2023-10-01,2236,6
+Meghalaya,,2019-01-01,679,1
+Meghalaya,,2019-04-01,1358,0
+Meghalaya,,2019-07-01,3055,0
+Meghalaya,,2019-10-01,1697,0
+Meghalaya,,2020-01-01,433,1
+Meghalaya,,2020-04-01,864,0
+Meghalaya,,2020-07-01,1944,0
+Meghalaya,,2020-10-01,1080,0
+Meghalaya,,2021-01-01,388,1
+Meghalaya,,2021-04-01,775,0
+Meghalaya,,2021-07-01,1744,0
+Meghalaya,,2021-10-01,969,0
+Meghalaya,,2022-01-01,354,1
+Meghalaya,,2022-04-01,708,0
+Meghalaya,,2022-07-01,1594,0
+Meghalaya,,2022-10-01,886,0
+Meghalaya,,2023-01-01,422,1
+Meghalaya,,2023-04-01,844,0
+Meghalaya,,2023-07-01,1898,0
+Meghalaya,,2023-10-01,1054,0
+Odisha,,2019-01-01,3950,0
+Odisha,,2019-04-01,7900,1
+Odisha,,2019-07-01,17775,1
+Odisha,,2019-10-01,9875,1
+Odisha,,2020-01-01,4173,2
+Odisha,,2020-04-01,8348,2
+Odisha,,2020-07-01,18783,5
+Odisha,,2020-10-01,10435,3
+Odisha,,2021-01-01,2550,1
+Odisha,,2021-04-01,5101,1
+Odisha,,2021-07-01,11476,3
+Odisha,,2021-10-01,6376,2
+Odisha,,2022-01-01,2378,0
+Odisha,,2022-04-01,4754,1
+Odisha,,2022-07-01,10696,3
+Odisha,,2022-10-01,5942,2
+Odisha,,2023-01-01,4197,1
+Odisha,,2023-04-01,8395,1
+Odisha,,2023-07-01,18888,2
+Odisha,,2023-10-01,10493,1
+West Bengal,,2019-01-01,1568,0
+West Bengal,,2019-04-01,3134,1
+West Bengal,,2019-07-01,7052,1
+West Bengal,,2019-10-01,3918,1
+West Bengal,,2020-01-01,988,1
+West Bengal,,2020-04-01,1975,0
+West Bengal,,2020-07-01,4443,1
+West Bengal,,2020-10-01,2468,0
+West Bengal,,2021-01-01,2899,0
+West Bengal,,2021-04-01,5797,1
+West Bengal,,2021-07-01,13044,2
+West Bengal,,2021-10-01,7247,1
+West Bengal,,2022-01-01,4060,0
+West Bengal,,2022-04-01,8119,1
+West Bengal,,2022-07-01,18267,3
+West Bengal,,2022-10-01,10148,2
+West Bengal,,2023-01-01,2649,0
+West Bengal,,2023-04-01,5299,1
+West Bengal,,2023-07-01,11922,2
+West Bengal,,2023-10-01,6623,1
