@@ -9,6 +9,7 @@ warnings.filterwarnings("ignore")
 
 from services.features import build_features
 from services.model_leaderboard import build_model_leaderboard
+from services.forecasting_v2 import forecast_ml_models
 
 app = Flask(__name__)
 CORS(app)
@@ -305,6 +306,74 @@ def model_leaderboard():
             "count": len(leaderboard) if isinstance(leaderboard, list) else 0,
             "leaderboard": leaderboard
         })
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/best-model-forecast")
+def best_model_forecast():
+    """
+    Identifies the best model via backtesting and returns its forecast.
+    """
+    disease = request.args.get("disease", "dengue")
+    try:
+        # 1. Load data
+        df = load_standardized(disease)
+        
+        # 2. Get leaderboard to find the best model (Rank 1)
+        leaderboard = build_model_leaderboard(df)
+        if not leaderboard or (isinstance(leaderboard, list) and "error" in leaderboard[0]):
+            error_msg = leaderboard[0]["error"] if leaderboard else "Unknown error"
+            return jsonify({"error": f"Leaderboard generation failed: {error_msg}"}), 500
+            
+        best_model_data = leaderboard[0]
+        model_name = best_model_data["model_name"]
+        
+        # 3. Generate forecasts for all ML models
+        ml_results = forecast_ml_models(df, steps=4)
+        if "error" in ml_results:
+            return jsonify({"error": f"Forecast generation failed: {ml_results['error']}"}), 500
+            
+        # 4. Map model name to internal key
+        name_to_key = {
+            "Linear Regression": "linear",
+            "Ridge Regression": "ridge",
+            "Random Forest Regressor": "random_forest",
+            "Gradient Boosting Regressor": "gradient_boosting"
+        }
+        model_key = name_to_key.get(model_name)
+        
+        if not model_key or model_key not in ml_results["predictions"]:
+            return jsonify({"error": f"Prediction key '{model_key}' not found for model '{model_name}'"}), 500
+            
+        predictions = ml_results["predictions"][model_key]
+        future_dates = ml_results["future_dates"]
+        
+        # 5. Format the specific forecast for the best model
+        forecast_payload = []
+        for i in range(len(predictions)):
+            forecast_payload.append({
+                "date": future_dates[i],
+                "predicted_cases": round(max(0.0, float(predictions[i])), 2)
+            })
+            
+        return jsonify({
+            "disease": disease,
+            "best_model": model_name,
+            "model_key": model_key,
+            "selection_reason": best_model_data["reason"],
+            "future_dates": future_dates,
+            "forecast": forecast_payload,
+            "leaderboard_summary": {
+                "average_rmse": best_model_data["average_rmse"],
+                "average_mae": best_model_data["average_mae"],
+                "average_mape": best_model_data["average_mape"],
+                "number_of_backtest_windows": best_model_data["number_of_backtest_windows"]
+            }
+        })
+        
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as e:
