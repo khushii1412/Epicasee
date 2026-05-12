@@ -7,6 +7,13 @@ import numpy as np
 import warnings
 warnings.filterwarnings("ignore")
 
+from services.features import build_features
+from services.model_leaderboard import build_model_leaderboard
+from services.forecasting_v2 import forecast_ml_models
+from services.anomaly_detection import get_latest_anomaly_summary
+from services.risk_engine import get_top_risk_states
+from services.alert_feed import generate_alert_feed
+
 app = Flask(__name__)
 CORS(app)
 
@@ -240,6 +247,228 @@ def comparison():
         summary["cfr"] = (summary["total_deaths"] / summary["total_cases"] * 100).round(2)
         records = _json.loads(summary.to_json(orient="records"))
         return jsonify({"data": records})
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/features/preview")
+def features_preview():
+    """Generate and return a preview of engineered features for Dengue."""
+    try:
+        # 1. Load sample data (Dengue)
+        df = load_standardized("dengue")
+        
+        # 2. Build features
+        df_featured = build_features(df)
+        
+        # 3. Select requested columns
+        cols = [
+            "state", "district", "time_index", "cases", "deaths", 
+            "year", "quarter", "lag_1_cases", "rolling_mean_4", 
+            "growth_rate", "case_fatality_rate", "is_monsoon_quarter", 
+            "z_score_cases", "outbreak_intensity_score"
+        ]
+        
+        # Filter columns that actually exist (defensive)
+        available_cols = [c for c in cols if c in df_featured.columns]
+        preview = df_featured[available_cols].head(10).copy()
+        
+        # Convert time_index to string for readable JSON
+        if "time_index" in preview.columns:
+            preview["time_index"] = preview["time_index"].dt.strftime("%Y-%m-%d")
+        
+        # 4. Return as JSON
+        records = _json.loads(preview.to_json(orient="records"))
+        return jsonify({
+            "count": len(records),
+            "columns": available_cols,
+            "data": records
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/model-leaderboard")
+def model_leaderboard():
+    """
+    Returns a ranked leaderboard of ML models for a specific disease.
+    Uses rolling-origin backtesting metrics (RMSE, MAE, R2, etc.).
+    """
+    disease = request.args.get("disease", "dengue")
+    try:
+        # Load the relevant dataset
+        df = load_standardized(disease)
+        
+        # Build the leaderboard using the service
+        leaderboard = build_model_leaderboard(df)
+        
+        return jsonify({
+            "disease": disease,
+            "count": len(leaderboard) if isinstance(leaderboard, list) else 0,
+            "leaderboard": leaderboard
+        })
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/best-model-forecast")
+def best_model_forecast():
+    """
+    Identifies the best model via backtesting and returns its forecast.
+    """
+    disease = request.args.get("disease", "dengue")
+    try:
+        # 1. Load data
+        df = load_standardized(disease)
+        
+        # 2. Get leaderboard to find the best model (Rank 1)
+        leaderboard = build_model_leaderboard(df)
+        if not leaderboard or (isinstance(leaderboard, list) and "error" in leaderboard[0]):
+            error_msg = leaderboard[0]["error"] if leaderboard else "Unknown error"
+            return jsonify({"error": f"Leaderboard generation failed: {error_msg}"}), 500
+            
+        best_model_data = leaderboard[0]
+        model_name = best_model_data["model_name"]
+        
+        # 3. Generate forecasts for all ML models
+        ml_results = forecast_ml_models(df, steps=4)
+        if "error" in ml_results:
+            return jsonify({"error": f"Forecast generation failed: {ml_results['error']}"}), 500
+            
+        # 4. Map model name to internal key
+        name_to_key = {
+            "Linear Regression": "linear",
+            "Ridge Regression": "ridge",
+            "Random Forest Regressor": "random_forest",
+            "Gradient Boosting Regressor": "gradient_boosting"
+        }
+        model_key = name_to_key.get(model_name)
+        
+        if not model_key or model_key not in ml_results["predictions"]:
+            return jsonify({"error": f"Prediction key '{model_key}' not found for model '{model_name}'"}), 500
+            
+        predictions = ml_results["predictions"][model_key]
+        future_dates = ml_results["future_dates"]
+        
+        # 5. Format the specific forecast for the best model with uncertainty bands
+        forecast_payload = []
+        rmse = best_model_data.get("average_rmse", 0.0)
+        mape = best_model_data.get("average_mape", 100.0)
+        
+        # Determine confidence level based on MAPE
+        if mape <= 20:
+            confidence = "High"
+        elif mape <= 50:
+            confidence = "Medium"
+        else:
+            confidence = "Low"
+
+        for i in range(len(predictions)):
+            pred_val = float(predictions[i])
+            
+            # Confidence Band Formula: pred +/- 1.96 * RMSE
+            lower = max(0.0, pred_val - (1.96 * rmse))
+            upper = pred_val + (1.96 * rmse)
+            
+            forecast_payload.append({
+                "date": future_dates[i],
+                "predicted_cases": round(max(0.0, pred_val), 2),
+                "lower_bound": round(lower, 2),
+                "upper_bound": round(upper, 2),
+                "confidence_level": confidence
+            })
+            
+        return jsonify({
+            "disease": disease,
+            "best_model": model_name,
+            "model_key": model_key,
+            "selection_reason": best_model_data["reason"],
+            "future_dates": future_dates,
+            "forecast": forecast_payload,
+            "leaderboard_summary": {
+                "average_rmse": best_model_data["average_rmse"],
+                "average_mae": best_model_data["average_mae"],
+                "average_mape": best_model_data["average_mape"],
+                "number_of_backtest_windows": best_model_data["number_of_backtest_windows"]
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/anomalies/latest")
+def anomalies_latest():
+    """
+    Returns the latest anomaly detection results for a specific disease.
+    Uses rolling Z-scores to identify outbreak spikes.
+    """
+    disease = request.args.get("disease", "dengue")
+    try:
+        # Load the relevant dataset
+        df = load_standardized(disease)
+        
+        # Get the most recent anomalies using the service
+        anomalies = get_latest_anomaly_summary(df)
+        
+        return jsonify({
+            "disease": disease,
+            "count": len(anomalies),
+            "anomalies": anomalies
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/risk/top")
+def risk_top():
+    """
+    Returns the top regions with the highest outbreak risk scores.
+    Combines cases, growth, fatality, and statistical anomalies.
+    """
+    disease = request.args.get("disease", "dengue")
+    top_n = request.args.get("top_n", default=10, type=int)
+    
+    try:
+        # Load the relevant dataset
+        df = load_standardized(disease)
+        
+        # Calculate risk scores and get top N
+        risk_states = get_top_risk_states(df, top_n=top_n)
+        
+        return jsonify({
+            "disease": disease,
+            "count": len(risk_states),
+            "risk_states": risk_states
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/alerts")
+def alerts():
+    """
+    Returns a feed of outbreak alerts based on current risk levels.
+    """
+    disease = request.args.get("disease", "dengue")
+    top_n = request.args.get("top_n", default=10, type=int)
+    
+    try:
+        # Load the relevant dataset
+        df = load_standardized(disease)
+        
+        # Generate the alert feed using the service
+        alerts_list = generate_alert_feed(df, disease=disease, top_n=top_n)
+        
+        return jsonify({
+            "disease": disease,
+            "count": len(alerts_list),
+            "alerts": alerts_list
+        })
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as e:
