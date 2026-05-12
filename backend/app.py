@@ -8,6 +8,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 from services.features import build_features
+from services.model_leaderboard import build_model_leaderboard
 
 app = Flask(__name__)
 CORS(app)
@@ -281,6 +282,31 @@ def features_preview():
             "columns": available_cols,
             "data": records
         })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/model-leaderboard")
+def model_leaderboard():
+    """
+    Returns a ranked leaderboard of ML models for a specific disease.
+    Uses rolling-origin backtesting metrics (RMSE, MAE, R2, etc.).
+    """
+    disease = request.args.get("disease", "dengue")
+    try:
+        # Load the relevant dataset
+        df = load_standardized(disease)
+        
+        # Build the leaderboard using the service
+        leaderboard = build_model_leaderboard(df)
+        
+        return jsonify({
+            "disease": disease,
+            "count": len(leaderboard) if isinstance(leaderboard, list) else 0,
+            "leaderboard": leaderboard
+        })
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
