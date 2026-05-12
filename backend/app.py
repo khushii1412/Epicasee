@@ -351,12 +351,32 @@ def best_model_forecast():
         predictions = ml_results["predictions"][model_key]
         future_dates = ml_results["future_dates"]
         
-        # 5. Format the specific forecast for the best model
+        # 5. Format the specific forecast for the best model with uncertainty bands
         forecast_payload = []
+        rmse = best_model_data.get("average_rmse", 0.0)
+        mape = best_model_data.get("average_mape", 100.0)
+        
+        # Determine confidence level based on MAPE
+        if mape <= 20:
+            confidence = "High"
+        elif mape <= 50:
+            confidence = "Medium"
+        else:
+            confidence = "Low"
+
         for i in range(len(predictions)):
+            pred_val = float(predictions[i])
+            
+            # Confidence Band Formula: pred +/- 1.96 * RMSE
+            lower = max(0.0, pred_val - (1.96 * rmse))
+            upper = pred_val + (1.96 * rmse)
+            
             forecast_payload.append({
                 "date": future_dates[i],
-                "predicted_cases": round(max(0.0, float(predictions[i])), 2)
+                "predicted_cases": round(max(0.0, pred_val), 2),
+                "lower_bound": round(lower, 2),
+                "upper_bound": round(upper, 2),
+                "confidence_level": confidence
             })
             
         return jsonify({
