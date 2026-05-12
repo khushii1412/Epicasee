@@ -13,6 +13,7 @@ from services.forecasting_v2 import forecast_ml_models
 from services.anomaly_detection import get_latest_anomaly_summary
 from services.risk_engine import get_top_risk_states
 from services.alert_feed import generate_alert_feed
+from services.disease_comparison_v2 import compare_diseases
 
 app = Flask(__name__)
 CORS(app)
@@ -468,6 +469,32 @@ def alerts():
             "disease": disease,
             "count": len(alerts_list),
             "alerts": alerts_list
+        })
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/disease-comparison-v2")
+def disease_comparison_v2():
+    """
+    Returns a high-level comparison across COVID, Dengue, and Malaria.
+    """
+    try:
+        # Load data for all three major diseases
+        data_map = {
+            "covid": load_standardized("covid"),
+            "dengue": load_standardized("dengue"),
+            "malaria": load_standardized("malaria")
+        }
+        
+        # Run the comparison engine
+        comparison = compare_diseases(data_map)
+        
+        return jsonify({
+            "count": len(comparison),
+            "comparison": comparison
         })
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
