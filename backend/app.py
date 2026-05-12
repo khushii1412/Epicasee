@@ -12,6 +12,7 @@ from services.model_leaderboard import build_model_leaderboard
 from services.forecasting_v2 import forecast_ml_models
 from services.anomaly_detection import get_latest_anomaly_summary
 from services.risk_engine import get_top_risk_states
+from services.alert_feed import generate_alert_feed
 
 app = Flask(__name__)
 CORS(app)
@@ -443,6 +444,30 @@ def risk_top():
             "disease": disease,
             "count": len(risk_states),
             "risk_states": risk_states
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/alerts")
+def alerts():
+    """
+    Returns a feed of outbreak alerts based on current risk levels.
+    """
+    disease = request.args.get("disease", "dengue")
+    top_n = request.args.get("top_n", default=10, type=int)
+    
+    try:
+        # Load the relevant dataset
+        df = load_standardized(disease)
+        
+        # Generate the alert feed using the service
+        alerts_list = generate_alert_feed(df, disease=disease, top_n=top_n)
+        
+        return jsonify({
+            "disease": disease,
+            "count": len(alerts_list),
+            "alerts": alerts_list
         })
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
