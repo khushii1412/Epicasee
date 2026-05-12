@@ -10,6 +10,7 @@ warnings.filterwarnings("ignore")
 from services.features import build_features
 from services.model_leaderboard import build_model_leaderboard
 from services.forecasting_v2 import forecast_ml_models
+from services.anomaly_detection import get_latest_anomaly_summary
 
 app = Flask(__name__)
 CORS(app)
@@ -394,6 +395,29 @@ def best_model_forecast():
             }
         })
         
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/anomalies/latest")
+def anomalies_latest():
+    """
+    Returns the latest anomaly detection results for a specific disease.
+    Uses rolling Z-scores to identify outbreak spikes.
+    """
+    disease = request.args.get("disease", "dengue")
+    try:
+        # Load the relevant dataset
+        df = load_standardized(disease)
+        
+        # Get the most recent anomalies using the service
+        anomalies = get_latest_anomaly_summary(df)
+        
+        return jsonify({
+            "disease": disease,
+            "count": len(anomalies),
+            "anomalies": anomalies
+        })
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as e:
