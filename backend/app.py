@@ -11,6 +11,7 @@ from services.features import build_features
 from services.model_leaderboard import build_model_leaderboard
 from services.forecasting_v2 import forecast_ml_models
 from services.anomaly_detection import get_latest_anomaly_summary
+from services.risk_engine import get_top_risk_states
 
 app = Flask(__name__)
 CORS(app)
@@ -417,6 +418,31 @@ def anomalies_latest():
             "disease": disease,
             "count": len(anomalies),
             "anomalies": anomalies
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/risk/top")
+def risk_top():
+    """
+    Returns the top regions with the highest outbreak risk scores.
+    Combines cases, growth, fatality, and statistical anomalies.
+    """
+    disease = request.args.get("disease", "dengue")
+    top_n = request.args.get("top_n", default=10, type=int)
+    
+    try:
+        # Load the relevant dataset
+        df = load_standardized(disease)
+        
+        # Calculate risk scores and get top N
+        risk_states = get_top_risk_states(df, top_n=top_n)
+        
+        return jsonify({
+            "disease": disease,
+            "count": len(risk_states),
+            "risk_states": risk_states
         })
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
