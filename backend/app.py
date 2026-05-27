@@ -14,6 +14,7 @@ from services.anomaly_detection import get_latest_anomaly_summary
 from services.risk_engine import get_top_risk_states
 from services.alert_feed import generate_alert_feed
 from services.disease_comparison_v2 import compare_diseases
+from services.intelligence_summary import generate_executive_summary
 
 app = Flask(__name__)
 CORS(app)
@@ -499,6 +500,22 @@ def disease_comparison_v2():
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/intelligence-summary")
+def intelligence_summary():
+    """
+    Returns a government-style Executive Intelligence Summary across major diseases.
+    """
+    try:
+        summary = generate_executive_summary()
+        return jsonify(summary)
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
