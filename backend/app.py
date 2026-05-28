@@ -11,9 +11,9 @@ from services.features import build_features
 from services.model_leaderboard import build_model_leaderboard
 from services.forecasting_v2 import forecast_ml_models
 from services.anomaly_detection import get_latest_anomaly_summary
-from services.risk_engine import get_top_risk_states
+from services.risk_engine import get_top_risk_states, generate_risk_summary
 from services.alert_feed import generate_alert_feed
-from services.disease_comparison_v2 import compare_diseases
+from services.disease_comparison_v2 import compare_diseases, get_forecast_trend
 from services.intelligence_summary import generate_executive_summary
 
 app = Flask(__name__)
@@ -511,6 +511,135 @@ def intelligence_summary():
     try:
         summary = generate_executive_summary()
         return jsonify(summary)
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/state-profile")
+def state_profile():
+    """
+    Returns a comprehensive public health profile for a specific state and disease.
+    """
+    disease = request.args.get("disease", "dengue")
+    state = request.args.get("state")
+    
+    if not state:
+        return jsonify({"error": "state query parameter is required"}), 400
+        
+    try:
+        # Load standardized data for the disease
+        df = load_standardized(disease)
+        
+        # Verify state exists in df
+        available_states = df["state"].dropna().unique()
+        if state not in available_states:
+            return jsonify({"error": f"State '{state}' not found for disease '{disease}'"}), 404
+            
+        # Get historical state data for aggregation and latest record
+        df_state = df[df["state"] == state].copy()
+        
+        # Aggregate statistics
+        total_cases = int(df_state["cases"].sum())
+        total_deaths = int(df_state["deaths"].sum())
+        case_fatality_rate = float(round((total_deaths / total_cases * 100), 4)) if total_cases > 0 else 0.0
+        
+        # Chronologically sort state data to find the latest time index and records
+        df_state["time_index"] = pd.to_datetime(df_state["time_index"])
+        df_state_sorted = df_state.sort_values("time_index")
+        
+        latest_row = df_state_sorted.iloc[-1]
+        latest_time_index = latest_row["time_index"].strftime("%Y-%m-%d")
+        latest_cases = float(latest_row["cases"])
+        latest_deaths = float(latest_row["deaths"])
+        
+        # Risk assessment & anomalies on the full dataset (for proper relative normalization)
+        risk_summary = generate_risk_summary(df)
+        state_risk = next((x for x in risk_summary if x["state"] == state), None)
+        
+        if state_risk:
+            risk_score = float(state_risk.get("risk_score", 0.0))
+            risk_level = state_risk.get("risk_level", "Low")
+            anomaly_status = state_risk.get("anomaly_status", "Normal")
+            z_score = float(state_risk.get("z_score", 0.0))
+        else:
+            risk_score = 0.0
+            risk_level = "Low"
+            anomaly_status = "Normal"
+            z_score = 0.0
+            
+        # Model Performance (Leaderboard) for the selected disease (using full df)
+        leaderboard = build_model_leaderboard(df)
+        best_model = "Unknown"
+        best_model_rmse = 0.0
+        if leaderboard and isinstance(leaderboard, list) and len(leaderboard) > 0 and "error" not in leaderboard[0]:
+            best_item = next((x for x in leaderboard if x.get("best_model") is True), None)
+            if not best_item:
+                best_item = leaderboard[0]
+            best_model = best_item.get("model_name", "Unknown")
+            best_model_rmse = round(float(best_item.get("average_rmse", 0.0)), 2)
+            
+        # Forecasting for the selected disease (using full df)
+        name_to_key = {
+            "Linear Regression": "linear",
+            "Ridge Regression": "ridge",
+            "Random Forest Regressor": "random_forest",
+            "Gradient Boosting Regressor": "gradient_boosting"
+        }
+        model_key = name_to_key.get(best_model, "linear")
+        
+        ml_forecasts = forecast_ml_models(df, steps=4)
+        forecast_trend = "stable"
+        if "predictions" in ml_forecasts and model_key in ml_forecasts["predictions"]:
+            forecast_vals = ml_forecasts["predictions"][model_key]
+            if forecast_vals and len(forecast_vals) >= 2:
+                first_val = float(forecast_vals[0])
+                last_val = float(forecast_vals[-1])
+                if first_val == 0:
+                    forecast_trend = "increasing" if last_val > 0 else "stable"
+                else:
+                    change_pct = (last_val - first_val) / first_val
+                    if change_pct > 0.05:
+                        forecast_trend = "increasing"
+                    elif change_pct < -0.05:
+                        forecast_trend = "decreasing"
+                    else:
+                        forecast_trend = "stable"
+            
+        # Alert priority and message
+        alerts_list = generate_alert_feed(df, disease=disease, top_n=1000)
+        state_alert = next((x for x in alerts_list if x["state"] == state), None)
+        
+        if state_alert:
+            alert_priority = state_alert.get("priority", "Low")
+            alert_message = state_alert.get("message", "")
+        else:
+            alert_priority = "Low"
+            alert_message = ""
+            
+        return jsonify({
+            "disease": disease,
+            "state": state,
+            "total_cases": total_cases,
+            "total_deaths": total_deaths,
+            "case_fatality_rate": case_fatality_rate,
+            "latest_time_index": latest_time_index,
+            "latest_cases": latest_cases,
+            "latest_deaths": latest_deaths,
+            "risk_score": risk_score,
+            "risk_level": risk_level,
+            "anomaly_status": anomaly_status,
+            "z_score": z_score,
+            "forecast_trend": forecast_trend,
+            "best_model": best_model,
+            "best_model_rmse": best_model_rmse,
+            "alert_priority": alert_priority,
+            "alert_message": alert_message
+        })
+        
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as e:
