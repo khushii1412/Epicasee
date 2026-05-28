@@ -17,6 +17,7 @@ from services.disease_comparison_v2 import compare_diseases, get_forecast_trend
 from services.intelligence_summary import generate_executive_summary
 from services.data_quality import inspect_data_quality
 from services.briefing import generate_briefing
+from services.model_explanation import generate_model_explanation
 
 app = Flask(__name__)
 CORS(app)
@@ -676,6 +677,25 @@ def briefing():
         return jsonify(results)
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/model-explanation")
+def model_explanation():
+    """
+    Returns an explainability report for the best predictive forecasting model of a disease.
+    """
+    disease = request.args.get("disease", "dengue")
+    try:
+        results = generate_model_explanation(PROCESSED_DIR, disease)
+        return jsonify(results)
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 500
     except Exception as e:
         import traceback
         traceback.print_exc()
