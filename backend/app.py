@@ -15,6 +15,7 @@ from services.risk_engine import get_top_risk_states, generate_risk_summary
 from services.alert_feed import generate_alert_feed
 from services.disease_comparison_v2 import compare_diseases, get_forecast_trend
 from services.intelligence_summary import generate_executive_summary
+from services.data_quality import inspect_data_quality
 
 app = Flask(__name__)
 CORS(app)
@@ -640,6 +641,22 @@ def state_profile():
             "alert_message": alert_message
         })
         
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/data-quality")
+def data_quality():
+    """
+    Returns data quality and credibility metrics across standardized datasets.
+    """
+    try:
+        results = inspect_data_quality(PROCESSED_DIR)
+        return jsonify(results)
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as e:
