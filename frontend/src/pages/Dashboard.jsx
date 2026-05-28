@@ -53,14 +53,42 @@ export default function Dashboard() {
     const [loadingStates, setLoadingStates] = useState(false)
     const [loadingData, setLoadingData] = useState(false)
     const [loadingForecast, setLoadingForecast] = useState(false)
+    const [alerts, setAlerts] = useState([])
+    const [riskStates, setRiskStates] = useState([])
+    const [bestForecast, setBestForecast] = useState(null)
+    const [leaderboard, setLeaderboard] = useState([])
+    const [loadingAlerts, setLoadingAlerts] = useState(false)
+    const [loadingIntelligence, setLoadingIntelligence] = useState(false)
+    const [alertError, setAlertError] = useState(null)
+    const [intelError, setIntelError] = useState(null)
     const [error, setError] = useState(null)
 
-    // Load diseases on mount
+    // Disease comparison v2 states
+    const [comparisonV2Data, setComparisonV2Data] = useState([])
+    const [loadingComparisonV2, setLoadingComparisonV2] = useState(true)
+    const [comparisonV2Error, setComparisonV2Error] = useState(null)
+
+    // Load diseases + comparison on mount
     useEffect(() => {
         getDiseases()
             .then(setDiseases)
             .catch(e => setError(e.message))
             .finally(() => setLoadingDiseases(false))
+
+        setLoadingComparisonV2(true)
+        setComparisonV2Error(null)
+        fetch(`${API_BASE}/api/disease-comparison-v2`)
+            .then(r => {
+                if (!r.ok) throw new Error('Failed to load comparison data')
+                return r.json()
+            })
+            .then(d => {
+                setComparisonV2Data(Array.isArray(d.comparison) ? d.comparison : [])
+            })
+            .catch(e => {
+                setComparisonV2Error('Failed to load comparison data')
+            })
+            .finally(() => setLoadingComparisonV2(false))
     }, [])
 
     // Load states + comparison when disease changes
@@ -80,6 +108,34 @@ export default function Dashboard() {
             .then(r => r.json())
             .then(d => setComparisonData(Array.isArray(d.data) ? d.data : []))
             .catch(() => { })
+
+        // Load Alerts
+        setLoadingAlerts(true)
+        setAlertError(null)
+        fetch(`${API_BASE}/api/alerts?disease=${selectedDisease}&top_n=5`)
+            .then(r => {
+                if (!r.ok) throw new Error('Failed to load alerts')
+                return r.json()
+            })
+            .then(d => setAlerts(Array.isArray(d.alerts) ? d.alerts : []))
+            .catch(e => setAlertError(e.message))
+            .finally(() => setLoadingAlerts(false))
+
+        // Load Intelligence Grid Data
+        setLoadingIntelligence(true)
+        setIntelError(null)
+
+        Promise.all([
+            fetch(`${API_BASE}/api/risk/top?disease=${selectedDisease}&top_n=5`).then(r => r.json()),
+            fetch(`${API_BASE}/api/best-model-forecast?disease=${selectedDisease}`).then(r => r.json()),
+            fetch(`${API_BASE}/api/model-leaderboard?disease=${selectedDisease}`).then(r => r.json())
+        ]).then(([riskData, forecastData, boardData]) => {
+            setRiskStates(Array.isArray(riskData.risk_states) ? riskData.risk_states : [])
+            setBestForecast(forecastData)
+            setLeaderboard(Array.isArray(boardData.leaderboard) ? boardData.leaderboard : [])
+        }).catch(e => {
+            setIntelError('Some intelligence modules failed to load')
+        }).finally(() => setLoadingIntelligence(false))
     }, [selectedDisease])
 
     // Load data + forecast when state changes
@@ -149,22 +205,31 @@ export default function Dashboard() {
                 <div className="container">
                     <div className="hero-top">
                         <div className="hero-left">
-                            <div className="project-kicker">NTCC Final Year Project • 2024–25</div>
+                            <div className="project-kicker">Epidemic Intelligence Command Center</div>
                             <h1 className="hero-title">
-                                Data-Driven Computational Approaches<br />
-                                for <span className="gradient-text">Forecasting Infectious Diseases</span>
+                                Advanced <span className="gradient-text">Disease Risk Intelligence</span>
                             </h1>
                             <p className="hero-subtitle">
-                                Multi-disease surveillance platform using ARIMA, SARIMA &amp; ML models on India&apos;s epidemiological data
+                                Multi-disease surveillance, forecasting, anomaly detection, and early-warning risk intelligence for India.
                             </p>
-                            <div className="hero-pills">
-                                {['COVID-19', 'Dengue', 'Malaria', 'IDSP'].map(p => <span key={p} className="pill">{p}</span>)}
-                                {['ARIMA', 'SARIMA', 'Linear Regression'].map(p => <span key={p} className="pill pill-model">{p}</span>)}
+                            <div className="hero-chips">
+                                <div className="hero-chip">
+                                    <span className="chip-icon"></span>
+                                    AI Forecasting
+                                </div>
+                                <div className="hero-chip">
+                                    <span className="chip-icon"></span>
+                                    Risk Scoring
+                                </div>
+                                <div className="hero-chip">
+                                    <span className="chip-icon"></span>
+                                    Outbreak Alerts
+                                </div>
                             </div>
                         </div>
                         <div className="hero-right">
                             <div className="hero-stat-box">
-                                {[['4', 'Diseases'], ['3', 'ML Models'], ['36+', 'States'], ['5yr', 'Data Range']].map(([n, l]) => (
+                                {[['3', 'Diseases'], ['Forecast AI', 'ML Models'], ['36+', 'States'], ['5yr', 'Data Range']].map(([n, l]) => (
                                     <div key={l} className="hstat">
                                         <div className="hstat-n">{n}</div>
                                         <div className="hstat-l">{l}</div>
@@ -185,6 +250,236 @@ export default function Dashboard() {
                             <button className="error-dismiss" onClick={() => setError(null)}>✕</button>
                         </div>
                     )}
+
+                    {/* ── Intelligence Grid ── */}
+                    {selectedDisease && (
+                        <section className="intel-section fade-in">
+                            <div className="intel-header">
+                                <h2 className="section-heading"> National Intelligence Grid</h2>
+                                <p className="section-desc">Automated analysis of outbreaks, hotspots, and model performance for {meta.label}.</p>
+                            </div>
+
+                            <div className="intel-grid">
+                                {/* 1. Alert Feed */}
+                                <div className="intel-card glass">
+                                    <div className="intel-card-header">
+                                        <h3> Outbreak Alerts</h3>
+                                        <span className="intel-badge">Real-time</span>
+                                    </div>
+                                    <div className="intel-card-body">
+                                        {loadingAlerts ? (
+                                            <div className="mini-loader">
+                                                <div className="mini-spinner" />
+                                                <span>Loading intelligence...</span>
+                                            </div>
+                                        ) : alertError ? (
+                                            <div className="intel-error">Failed to load alerts</div>
+                                        ) : alerts.length > 0 ? (
+                                            <div className="mini-alert-list">
+                                                {alerts.map((a, i) => (
+                                                    <div key={i} className={`mini-alert priority-${a.priority.toLowerCase()}`}>
+                                                        <div className="mini-alert-meta">
+                                                            <strong>{a.state}</strong>
+                                                            <span className={`priority-badge badge-${a.priority.toLowerCase()}`}>{a.priority}</span>
+                                                        </div>
+                                                        <p>{a.title}</p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="intel-empty">No alerts available</div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* 2. Risk Hotspots */}
+                                <div className="intel-card glass">
+                                    <div className="intel-card-header">
+                                        <h3> Hotspot Analysis</h3>
+                                        <span className="intel-badge">Risk Score</span>
+                                    </div>
+                                    <div className="intel-card-body">
+                                        {loadingIntelligence ? (
+                                            <div className="mini-loader">
+                                                <div className="mini-spinner" />
+                                                <span>Loading intelligence...</span>
+                                            </div>
+                                        ) : intelError ? (
+                                            <div className="intel-error">Failed to load hotspots</div>
+                                        ) : riskStates.length > 0 ? (
+                                            <div className="risk-list">
+                                                {riskStates.map((s, i) => (
+                                                    <div key={i} className="risk-item">
+                                                        <div className="risk-item-header">
+                                                            <span className="risk-state-name">{s.state}</span>
+                                                            <span className={`risk-level-badge level-${s.risk_level.toLowerCase()}`}>{s.risk_level}</span>
+                                                        </div>
+                                                        <div className="risk-bar-container">
+                                                            <div className="risk-bar-bg">
+                                                                <div className="risk-bar" style={{ width: `${s.risk_score}%`, background: s.risk_score > 70 ? '#fc466b' : s.risk_score > 35 ? '#f9ca24' : '#38ef7d' }} />
+                                                            </div>
+                                                            <span className="risk-val">{Math.round(s.risk_score)}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="intel-empty">Calculating hotspots...</div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* 3. Best Model Forecast */}
+                                <div className="intel-card glass">
+                                    <div className="intel-card-header">
+                                        <h3> Optimized Forecast</h3>
+                                        <span className="intel-badge">AI Best-Fit</span>
+                                    </div>
+                                    <div className="intel-card-body">
+                                        {loadingIntelligence ? (
+                                            <div className="mini-loader">
+                                                <div className="mini-spinner" />
+                                                <span>Loading intelligence...</span>
+                                            </div>
+                                        ) : intelError ? (
+                                            <div className="intel-error">Failed to load forecast</div>
+                                        ) : bestForecast && bestForecast.forecast ? (
+                                            <div className="best-forecast-mini">
+                                                <div className="best-model-info">
+                                                    <strong>{bestForecast.best_model}</strong>
+                                                    <div className="best-model-meta-row">
+                                                        <span className="best-model-key">{bestForecast.model_key || 'ml'}</span>
+                                                        <span className={`conf-badge conf-${(bestForecast.forecast[0]?.confidence_level || 'medium').toLowerCase()}`}>
+                                                            Conf: {bestForecast.forecast[0]?.confidence_level || 'Medium'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="mini-forecast-val">
+                                                    <span className="v-label">Next Period Forecast</span>
+                                                    <span className="v-num">{fmtN(Math.round(bestForecast.forecast[0]?.predicted_cases))}</span>
+                                                </div>
+                                                <div className="uncertainty-range">
+                                                    Range: <strong>{fmtN(Math.round(bestForecast.forecast[0]?.lower_bound))}</strong> - <strong>{fmtN(Math.round(bestForecast.forecast[0]?.upper_bound))}</strong>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="intel-empty">Running simulations...</div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* 4. Model Leaderboard */}
+                                <div className="intel-card glass">
+                                    <div className="intel-card-header">
+                                        <h3> Model Leaderboard</h3>
+                                        <span className="intel-badge">Backtested</span>
+                                    </div>
+                                    <div className="intel-card-body">
+                                        {loadingIntelligence ? (
+                                            <div className="mini-loader">
+                                                <div className="mini-spinner" />
+                                                <span>Loading intelligence...</span>
+                                            </div>
+                                        ) : intelError ? (
+                                            <div className="intel-error">Failed to load leaderboard</div>
+                                        ) : leaderboard.length > 0 ? (
+                                            <div className="leaderboard-mini">
+                                                {leaderboard.slice(0, 4).map((m, i) => (
+                                                    <div key={i} className={`board-item ${m.rank === 1 ? 'rank-first' : ''}`}>
+                                                        <span className="rank">#{m.rank}</span>
+                                                        <div className="board-item-details">
+                                                            <span className="name">{m.model_name}</span>
+                                                            <span className="rmse">RMSE: {fmtN(m.average_rmse)}</span>
+                                                        </div>
+                                                        {m.rank === 1 && <span className="best-model-badge">Best Model</span>}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="intel-empty">Evaluating models...</div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+                    )}
+
+                    {/* ── Disease Comparison Section ── */}
+                    <section className="comparison-v2-section glass fade-in">
+                        <div className="comparison-v2-header">
+                            <h2 className="section-heading"> National Cross-Disease Comparison</h2>
+                            <p className="section-desc">Key metrics and forecast trends comparing COVID, Dengue, and Malaria across India.</p>
+                        </div>
+
+                        {loadingComparisonV2 ? (
+                            <div className="loading-inline glass">
+                                <div className="spinner" />
+                                <span>Loading comparison...</span>
+                            </div>
+                        ) : comparisonV2Error ? (
+                            <div className="error-banner">
+                                <span>Failed to load comparison data</span>
+                            </div>
+                        ) : comparisonV2Data.length > 0 ? (
+                            <div className="comparison-v2-grid">
+                                {['covid', 'dengue', 'malaria'].map((dKey) => {
+                                    const card = comparisonV2Data.find(item => item.disease === dKey);
+                                    if (!card) return null;
+                                    const meta = DISEASE_META[dKey] || { label: dKey, color: '#94a3b8' };
+
+                                    if (card.error) {
+                                        return (
+                                            <div key={dKey} className={`comparison-v2-card disease-${dKey} has-error`} style={{ borderTop: `4px solid ${meta.color}` }}>
+                                                <span className="comp-disease-name">{meta.label}</span>
+                                                <div className="card-error-msg">Failed to load {meta.label} data</div>
+                                            </div>
+                                        );
+                                    }
+
+                                    return (
+                                        <div key={dKey} className={`comparison-v2-card disease-${dKey}`} style={{ borderTop: `4px solid ${meta.color}` }}>
+                                            <div className="comp-card-header">
+                                                <span className="comp-disease-name">{meta.label}</span>
+                                                <span className={`trend-badge trend-${card.forecast_trend}`}>
+                                                    {card.forecast_trend === 'increasing' ? '↗ Increasing' : card.forecast_trend === 'decreasing' ? '↘ Decreasing' : '→ Stable'}
+                                                </span>
+                                            </div>
+
+                                            <div className="comp-card-stats">
+                                                <div className="comp-stat-row">
+                                                    <span className="comp-stat-label">Total Cases</span>
+                                                    <span className="comp-stat-val">{fmtN(card.total_cases)}</span>
+                                                </div>
+                                                <div className="comp-stat-row">
+                                                    <span className="comp-stat-label">CFR (Fatality Rate)</span>
+                                                    <span className="comp-stat-val font-warning">{card.case_fatality_rate}%</span>
+                                                </div>
+                                                <div className="comp-stat-row">
+                                                    <span className="comp-stat-label">Highest Burden State</span>
+                                                    <span className="comp-stat-val comp-highlight">{card.highest_burden_state}</span>
+                                                </div>
+                                                <div className="comp-stat-row">
+                                                    <span className="comp-stat-label">Top Risk Region</span>
+                                                    <span className="comp-stat-val">
+                                                        {card.top_risk_state}
+                                                        <span className={`risk-tag risk-level-${(card.top_risk_level || '').toLowerCase()}`}>
+                                                            {card.top_risk_level}
+                                                        </span>
+                                                    </span>
+                                                </div>
+                                                <div className="comp-stat-row border-top-dash">
+                                                    <span className="comp-stat-label">Best Fit Model</span>
+                                                    <span className="comp-stat-val font-success">{card.best_model}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="intel-empty">No comparison data available</div>
+                        )}
+                    </section>
 
                     {/* ── Selection ── */}
                     <section className="selection-panel glass fade-in">
