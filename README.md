@@ -18,9 +18,9 @@ This framework provides a unified platform for:
 
 | Disease | Status | Data Source |
 |---------|--------|-------------|
-|  COVID-19 | Planned | MoHFW, covid19india.org |
-|  Dengue | Planned | NVBDCP |
-|  Malaria | Planned | NVBDCP |
+|  COVID-19 | Active / Supported | MoHFW, covid19india.org |
+|  Dengue | Active / Supported | NVBDCP |
+|  Malaria | Active / Supported | NVBDCP |
 |  IDSP | Planned | NCDC Weekly Reports |
 
 ##  Project Structure
@@ -120,7 +120,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-The backend will start on **http://localhost:5000**
+The backend will start on **http://localhost:5001**
 
 ### Available API Endpoints
 
@@ -130,6 +130,22 @@ The backend will start on **http://localhost:5000**
 | `/api/diseases` | GET | List available diseases |
 | `/api/states?disease_key=<key>` | GET | List states for a disease |
 | `/api/districts?disease_key=<key>&state=<state>` | GET | List districts for a state |
+| `/api/state-profile?state=<state>&disease=<disease>` | GET | Get comprehensive state profile, Z-score anomalies, risk scores, best ML model, and forecasts |
+| `/api/data-quality` | GET | Dynamic data quality score, missing value rates, data granularity notes, and schema validations |
+| `/api/briefing` | GET | Deterministic executive multi-disease early warning brief summarizing hotspots and forecast trends |
+| `/api/intelligence-summary` | GET | Government-style Executive Intelligence Report aggregating pathogen metrics and active alerts |
+| `/api/disease-comparison-v2` | GET | Pathogen-to-pathogen comparison across COVID, Dengue, and Malaria risk profiles |
+
+### 🧠 Advanced Epidemiological Intelligence Services
+
+The framework integrates several decoupled analytical engines running under `backend/services/`:
+
+1. **Risk Engine (`services/risk_engine.py`)**: Computes comprehensive weighted risk scores (out of 100) combining case volume (30%), expansion growth (20%), mortality CFR (15%), seasonal monsoon flags (15%), statistical anomalies (10%), and outbreak intensity (10%).
+2. **Anomaly Detection (`services/anomaly_detection.py`)**: Performs time-series outbreak detection using a 4-quarter rolling Z-score statistical baseline to flag possible outbreak spikes.
+3. **Model Leaderboard (`services/model_leaderboard.py` & `services/backtesting.py`)**: Backtests Machine Learning regression models (Linear, Ridge, Random Forest, and Gradient Boosting Regressors) using rolling-origin backtesting (RMSE, MAE, R2, sMAPE) to automatically select and rank the highest-performing forecasting model.
+4. **Recursive Forecasting (`services/forecasting_v2.py`)**: Generates 4-quarter-ahead recursive forecasts with custom uncertainty bounds (+/- 1.96 * RMSE) for future quarters.
+5. **Data Quality Auditor (`services/data_quality.py`)**: Analyzes standardized dataset schemas, counts missingness excluding intentional state-level district blanks, and scores the dataset out of 100.
+6. **Early Warning Briefing (`services/briefing.py`)**: Harmonizes risk, alert feeds, and forecast trends into a deterministic, highly-readable executive briefing summary.
 
 ---
 
