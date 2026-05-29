@@ -171,3 +171,4 @@ dist/
 .Trashes
 ehthumbs.db
 Thumbs.db
+backend/data_processed/.cache_persistent/

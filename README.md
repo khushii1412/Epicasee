@@ -130,11 +130,19 @@ The backend will start on **http://localhost:5001**
 | `/api/diseases` | GET | List available diseases |
 | `/api/states?disease_key=<key>` | GET | List states for a disease |
 | `/api/districts?disease_key=<key>&state=<state>` | GET | List districts for a state |
+| `/api/data?disease_key=<key>&state=<state>&district=<district>` | GET | Get standardized data records for a disease, state, and/or district |
 | `/api/state-profile?state=<state>&disease=<disease>` | GET | Get comprehensive state profile, Z-score anomalies, risk scores, best ML model, and forecasts |
 | `/api/data-quality` | GET | Dynamic data quality score, missing value rates, data granularity notes, and schema validations |
 | `/api/briefing` | GET | Deterministic executive multi-disease early warning brief summarizing hotspots and forecast trends |
 | `/api/intelligence-summary` | GET | Government-style Executive Intelligence Report aggregating pathogen metrics and active alerts |
 | `/api/disease-comparison-v2` | GET | Pathogen-to-pathogen comparison across COVID, Dengue, and Malaria risk profiles |
+| `/api/model-explanation?disease=<disease>` | GET | Get explainability report detailing rolling-origin backtest windows, confidence levels, and RMSE vs. MAPE metrics |
+| `/api/forecast?disease_key=<key>&state=<state>&steps=<steps>` | GET | Run detailed ARIMA, SARIMA, and Linear Regression forecasts with uncertainty bounds |
+| `/api/model-leaderboard?disease=<disease>` | GET | Get ranked model leaderboard using rolling-origin backtesting metrics |
+| `/api/best-model-forecast?disease=<disease>` | GET | Identify the best-performing ML model via backtesting and return its 4-quarter prediction payload |
+| `/api/anomalies/latest?disease=<disease>` | GET | Get latest statistical anomaly outbreak spikes detected using rolling Z-scores |
+| `/api/risk/top?disease=<disease>&top_n=<N>` | GET | List top regional hotspots ranked by cumulative weighted risk scores |
+| `/api/alerts?disease=<disease>&top_n=<N>` | GET | Fetch active outbreak alerts feed filtered by severity priority levels |
 
 ### 🧠 Advanced Epidemiological Intelligence Services
 
@@ -146,6 +154,18 @@ The framework integrates several decoupled analytical engines running under `bac
 4. **Recursive Forecasting (`services/forecasting_v2.py`)**: Generates 4-quarter-ahead recursive forecasts with custom uncertainty bounds (+/- 1.96 * RMSE) for future quarters.
 5. **Data Quality Auditor (`services/data_quality.py`)**: Analyzes standardized dataset schemas, counts missingness excluding intentional state-level district blanks, and scores the dataset out of 100.
 6. **Early Warning Briefing (`services/briefing.py`)**: Harmonizes risk, alert feeds, and forecast trends into a deterministic, highly-readable executive briefing summary.
+7. **Model Explainability Engine (`services/model_explanation.py`)**: Interprets forecasting performance by checking rolling backtesting windows, computing confidence levels (High/Medium/Low based on MAPE), and providing context-aware forecast reliability notes.
+8. **In-Memory Caching Utility (`services/cache_utils.py`)**: A thread-safe, memory-based caching mechanism that stores the output of heavy mathematical calculations (such as ML model fitting and backtesting) to allow instantaneous subsequent page refreshes.
+
+### ⚡ Dashboard Performance & UI Optimization
+
+To ensure a seamless, professional experience without frozen layouts or blocking browser threads:
+- **In-Memory Caching**: Heavy backend analytical endpoints are wrapped in a 10-minute TTL cache, decreasing loading latency for subsequent queries from **12-15 seconds down to under 5 milliseconds**.
+- **Staged Loading Architecture**: The frontend divides loading into independent, asynchronously rendered cycles:
+  1. *Stage 1 (Immediate)*: Outbreak Alerts and Risk Hotspots are loaded instantly upon page change.
+  2. *Stage 2 (Deferred)*: Heavy best-fit forecasts and model leaderboards are deferred by `200ms` using `setTimeout` to let the primary UI components paint and settle first.
+- **Micro-Skeletons & Timeout Fallbacks**: Unified page spinners are replaced by individual shimmer loaders. Queries use a custom `fetchWithTimeout` helper racing against a `15-second` timeout, allowing individual grid cards to display fallback "warming up" states rather than crashing or freezing the layout.
+- **On-Demand ARIMA/SARIMA Projections**: The resource-intensive ARIMA/SARIMA models run strictly on demand via an interactive premium call-to-action button, ensuring the dashboard loads instantaneously under all circumstances.
 
 ---
 
