@@ -41,6 +41,24 @@ function fmtN(n) {
 
 const TOOLTIP_STYLE = { background: '#1a1f2e', border: '1px solid #2d3561', borderRadius: 8, fontSize: 13 }
 
+function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            reject(new Error('TIMEOUT'));
+        }, timeoutMs);
+        
+        fetch(url, options)
+            .then(res => {
+                clearTimeout(timer);
+                resolve(res);
+            })
+            .catch(err => {
+                clearTimeout(timer);
+                reject(err);
+            });
+    });
+}
+
 export default function Dashboard() {
     const [selectedDisease, setSelectedDisease] = useState('')
     const [selectedState, setSelectedState] = useState('')
@@ -61,12 +79,29 @@ export default function Dashboard() {
     const [loadingIntelligence, setLoadingIntelligence] = useState(false)
     const [alertError, setAlertError] = useState(null)
     const [intelError, setIntelError] = useState(null)
+    const [riskError, setRiskError] = useState(false)
+    const [forecastError, setForecastError] = useState(false)
+    const [leaderboardError, setLeaderboardError] = useState(false)
+    const [forecastChartError, setForecastChartError] = useState(null)
     const [error, setError] = useState(null)
+
+    // Staged loading states for National Intelligence Grid
+    const [loadingHotspots, setLoadingHotspots] = useState(false)
+    const [loadingBestForecast, setLoadingBestForecast] = useState(false)
+    const [loadingLeaderboard, setLoadingLeaderboard] = useState(false)
+    
+    // Timeout messages for fallback
+    const [forecastTimeoutMessage, setForecastTimeoutMessage] = useState(null)
+    const [leaderboardTimeoutMessage, setLeaderboardTimeoutMessage] = useState(null)
+    
+    // Lazy forecast trigger state
+    const [forecastRunClicked, setForecastRunClicked] = useState(false)
 
     // Disease comparison v2 states
     const [comparisonV2Data, setComparisonV2Data] = useState([])
     const [loadingComparisonV2, setLoadingComparisonV2] = useState(true)
     const [comparisonV2Error, setComparisonV2Error] = useState(null)
+    const [intelligenceSummary, setIntelligenceSummary] = useState(null)
 
     // Load diseases + comparison on mount
     useEffect(() => {
@@ -77,18 +112,39 @@ export default function Dashboard() {
 
         setLoadingComparisonV2(true)
         setComparisonV2Error(null)
-        fetch(`${API_BASE}/api/disease-comparison-v2`)
+
+        // 1. Fetch /api/intelligence-summary as the primary fast source
+        fetchWithTimeout(`${API_BASE}/api/intelligence-summary`, {}, 15000)
             .then(r => {
-                if (!r.ok) throw new Error('Failed to load comparison data')
+                if (!r.ok) throw new Error('Failed to load primary intelligence summary')
                 return r.json()
             })
             .then(d => {
-                setComparisonV2Data(Array.isArray(d.comparison) ? d.comparison : [])
+                setIntelligenceSummary(d)
+                if (d && Array.isArray(d.disease_snapshot) && d.disease_snapshot.length > 0) {
+                    setComparisonV2Data(d.disease_snapshot)
+                    setLoadingComparisonV2(false)
+                } else {
+                    throw new Error('Empty disease snapshot')
+                }
             })
-            .catch(e => {
-                setComparisonV2Error('Failed to load comparison data')
+            .catch(err => {
+                console.warn('Primary intelligence summary fetch failed, trying optional disease-comparison-v2 fallback...', err)
+                // 2. Fallback to /api/disease-comparison-v2
+                fetchWithTimeout(`${API_BASE}/api/disease-comparison-v2`, {}, 15000)
+                    .then(r => {
+                        if (!r.ok) throw new Error('Failed to load fallback comparison data')
+                        return r.json()
+                    })
+                    .then(d => {
+                        setComparisonV2Data(Array.isArray(d.comparison) ? d.comparison : [])
+                    })
+                    .catch(e => {
+                        console.error('Both primary and fallback comparison fetches failed:', e)
+                        setComparisonV2Error('Comparison data temporarily unavailable.')
+                    })
+                    .finally(() => setLoadingComparisonV2(false))
             })
-            .finally(() => setLoadingComparisonV2(false))
     }, [])
 
     // Load states + comparison when disease changes
@@ -109,10 +165,10 @@ export default function Dashboard() {
             .then(d => setComparisonData(Array.isArray(d.data) ? d.data : []))
             .catch(() => { })
 
-        // Load Alerts
+        // Load Alerts immediately
         setLoadingAlerts(true)
         setAlertError(null)
-        fetch(`${API_BASE}/api/alerts?disease=${selectedDisease}&top_n=5`)
+        fetchWithTimeout(`${API_BASE}/api/alerts?disease=${selectedDisease}&top_n=5`)
             .then(r => {
                 if (!r.ok) throw new Error('Failed to load alerts')
                 return r.json()
@@ -121,41 +177,137 @@ export default function Dashboard() {
             .catch(e => setAlertError(e.message))
             .finally(() => setLoadingAlerts(false))
 
-        // Load Intelligence Grid Data
-        setLoadingIntelligence(true)
-        setIntelError(null)
+        // Load Risk Hotspots immediately
+        setLoadingHotspots(true)
+        setRiskError(false)
+        fetchWithTimeout(`${API_BASE}/api/risk/top?disease=${selectedDisease}&top_n=5`)
+            .then(r => {
+                if (!r.ok) throw new Error('Risk Hotspots load failed')
+                return r.json()
+            })
+            .then(d => {
+                setRiskStates(Array.isArray(d.risk_states) ? d.risk_states : [])
+            })
+            .catch(err => {
+                console.error('Error loading hotspots:', err)
+                setRiskError(true)
+            })
+            .finally(() => setLoadingHotspots(false))
 
-        Promise.all([
-            fetch(`${API_BASE}/api/risk/top?disease=${selectedDisease}&top_n=5`).then(r => r.json()),
-            fetch(`${API_BASE}/api/best-model-forecast?disease=${selectedDisease}`).then(r => r.json()),
-            fetch(`${API_BASE}/api/model-leaderboard?disease=${selectedDisease}`).then(r => r.json())
-        ]).then(([riskData, forecastData, boardData]) => {
-            setRiskStates(Array.isArray(riskData.risk_states) ? riskData.risk_states : [])
-            setBestForecast(forecastData)
-            setLeaderboard(Array.isArray(boardData.leaderboard) ? boardData.leaderboard : [])
-        }).catch(e => {
-            setIntelError('Some intelligence modules failed to load')
-        }).finally(() => setLoadingIntelligence(false))
+        // Load Heavy Model Sections staged (deferred by 200ms)
+        setLoadingBestForecast(true)
+        setLoadingLeaderboard(true)
+        setForecastError(false)
+        setLeaderboardError(false)
+        setForecastTimeoutMessage(null)
+        setLeaderboardTimeoutMessage(null)
+
+        const stage2Timer = setTimeout(() => {
+            Promise.allSettled([
+                fetchWithTimeout(`${API_BASE}/api/best-model-forecast?disease=${selectedDisease}`),
+                fetchWithTimeout(`${API_BASE}/api/model-leaderboard?disease=${selectedDisease}`)
+            ]).then(([forecastResult, boardResult]) => {
+                // 1. Process Best Forecast
+                if (forecastResult.status === 'fulfilled') {
+                    const res = forecastResult.value;
+                    if (res.ok) {
+                        res.json().then(d => {
+                            if (d && d.error) {
+                                setForecastError(true)
+                            } else {
+                                setBestForecast(d)
+                            }
+                        }).catch(() => setForecastError(true))
+                    } else {
+                        res.json().then(errData => {
+                            setForecastError(true)
+                        }).catch(() => setForecastError(true))
+                    }
+                } else {
+                    const reason = forecastResult.reason;
+                    console.error('Forecast failed:', reason)
+                    if (reason && reason.message === 'TIMEOUT') {
+                        setForecastTimeoutMessage("Forecast intelligence is warming up.")
+                    } else {
+                        setForecastError(true)
+                    }
+                }
+                setLoadingBestForecast(false)
+
+                // 2. Process Model Leaderboard
+                if (boardResult.status === 'fulfilled') {
+                    const res = boardResult.value;
+                    if (res.ok) {
+                        res.json().then(d => {
+                            if (d && d.error) {
+                                setLeaderboardError(true)
+                            } else {
+                                setLeaderboard(Array.isArray(d.leaderboard) ? d.leaderboard : [])
+                            }
+                        }).catch(() => setLeaderboardError(true))
+                    } else {
+                        setLeaderboardError(true)
+                    }
+                } else {
+                    const reason = boardResult.reason;
+                    console.error('Leaderboard failed:', reason)
+                    if (reason && reason.message === 'TIMEOUT') {
+                        setLeaderboardTimeoutMessage("Model leaderboard is warming up. Refresh once or try again.")
+                    } else {
+                        setLeaderboardError(true)
+                    }
+                }
+                setLoadingLeaderboard(false)
+            })
+        }, 200)
+
+        return () => clearTimeout(stage2Timer)
     }, [selectedDisease])
 
-    // Load data + forecast when state changes
+    // Load data when state changes
     useEffect(() => {
         if (!selectedDisease || !selectedState) {
-            setCaseData([]); setForecastData(null); return
+            setCaseData([]); setForecastData(null); setForecastRunClicked(false); return
         }
         setLoadingData(true)
-        setLoadingForecast(true)
+        setForecastRunClicked(false)
+        setForecastData(null)
+        setForecastChartError(null)
+
         getData(selectedDisease, selectedState)
             .then(d => setCaseData(Array.isArray(d) ? d : []))
             .catch(e => setError(e.message))
             .finally(() => setLoadingData(false))
-
-        fetch(`${API_BASE}/api/forecast?disease_key=${selectedDisease}&state=${encodeURIComponent(selectedState)}&steps=4`)
-            .then(r => r.json())
-            .then(d => setForecastData(d))
-            .catch(() => { })
-            .finally(() => setLoadingForecast(false))
     }, [selectedDisease, selectedState])
+
+    const runDetailedForecast = () => {
+        if (!selectedDisease || !selectedState) return
+        setLoadingForecast(true)
+        setForecastRunClicked(true)
+        setForecastChartError(null)
+
+        fetchWithTimeout(`${API_BASE}/api/forecast?disease_key=${selectedDisease}&state=${encodeURIComponent(selectedState)}&steps=4`)
+            .then(r => {
+                if (!r.ok) {
+                    return r.json().then(errData => {
+                        throw new Error(errData.error || 'Failed to load forecast')
+                    })
+                }
+                return r.json()
+            })
+            .then(d => {
+                if (d && d.error) {
+                    throw new Error(d.error)
+                }
+                setForecastData(d)
+            })
+            .catch(err => {
+                console.error('Error fetching forecast:', err)
+                setForecastChartError(err.message === 'TIMEOUT' ? 'Forecast calculation timed out. Please try again.' : (err.message || 'Forecast unavailable. Please check backend dependencies.'))
+                setForecastData(null)
+            })
+            .finally(() => setLoadingForecast(false))
+    }
 
     const meta = DISEASE_META[selectedDisease] || { icon: '', label: selectedDisease, color: '#667eea' }
     const sortedData = [...caseData].sort((a, b) => new Date(a.time_index) - new Date(b.time_index))
@@ -299,12 +451,13 @@ export default function Dashboard() {
                                         <span className="intel-badge">Risk Score</span>
                                     </div>
                                     <div className="intel-card-body">
-                                        {loadingIntelligence ? (
-                                            <div className="mini-loader">
-                                                <div className="mini-spinner" />
-                                                <span>Loading intelligence...</span>
+                                        {loadingHotspots ? (
+                                            <div className="mini-skeleton-card">
+                                                <div className="skeleton-line title" />
+                                                <div className="skeleton-line text" />
+                                                <div className="skeleton-line text" />
                                             </div>
-                                        ) : intelError ? (
+                                        ) : riskError ? (
                                             <div className="intel-error">Failed to load hotspots</div>
                                         ) : riskStates.length > 0 ? (
                                             <div className="risk-list">
@@ -336,13 +489,14 @@ export default function Dashboard() {
                                         <span className="intel-badge">AI Best-Fit</span>
                                     </div>
                                     <div className="intel-card-body">
-                                        {loadingIntelligence ? (
-                                            <div className="mini-loader">
-                                                <div className="mini-spinner" />
-                                                <span>Loading intelligence...</span>
+                                        {loadingBestForecast ? (
+                                            <div className="mini-skeleton-card">
+                                                <div className="skeleton-line title" />
+                                                <div className="skeleton-line text" />
+                                                <div className="skeleton-line text" />
                                             </div>
-                                        ) : intelError ? (
-                                            <div className="intel-error">Failed to load forecast</div>
+                                        ) : (forecastError || forecastTimeoutMessage) ? (
+                                            <div className="intel-error">Forecast intelligence is warming up.</div>
                                         ) : bestForecast && bestForecast.forecast ? (
                                             <div className="best-forecast-mini">
                                                 <div className="best-model-info">
@@ -375,13 +529,14 @@ export default function Dashboard() {
                                         <span className="intel-badge">Backtested</span>
                                     </div>
                                     <div className="intel-card-body">
-                                        {loadingIntelligence ? (
-                                            <div className="mini-loader">
-                                                <div className="mini-spinner" />
-                                                <span>Loading intelligence...</span>
+                                        {loadingLeaderboard ? (
+                                            <div className="mini-skeleton-card">
+                                                <div className="skeleton-line title" />
+                                                <div className="skeleton-line text" />
+                                                <div className="skeleton-line text" />
                                             </div>
-                                        ) : intelError ? (
-                                            <div className="intel-error">Failed to load leaderboard</div>
+                                        ) : (leaderboardError || leaderboardTimeoutMessage) ? (
+                                            <div className="intel-error">Model leaderboard is warming up. Refresh once or try again.</div>
                                         ) : leaderboard.length > 0 ? (
                                             <div className="leaderboard-mini">
                                                 {leaderboard.slice(0, 4).map((m, i) => (
@@ -417,8 +572,48 @@ export default function Dashboard() {
                                 <span>Loading comparison...</span>
                             </div>
                         ) : comparisonV2Error ? (
-                            <div className="error-banner">
-                                <span>Failed to load comparison data</span>
+                            <div className="intel-empty glass fade-in" style={{ padding: '40px', textAlign: 'center', width: '100%', borderRadius: '16px', border: '1px dashed rgba(255,255,255,0.1)' }}>
+                                <div style={{ fontSize: '2rem', marginBottom: '12px' }}>📊</div>
+                                <h3 style={{ color: '#fff', marginBottom: '8px', fontSize: '1rem', fontWeight: '600' }}>Comparison data temporarily unavailable.</h3>
+                                <p style={{ color: '#8898aa', maxWidth: '500px', margin: '0 auto 16px', fontSize: '0.82rem', lineHeight: '1.5' }}>
+                                    {comparisonV2Error}
+                                </p>
+                                <button className="run-forecast-btn" style={{ padding: '6px 14px', fontSize: '0.78rem' }} onClick={() => {
+                                    setLoadingComparisonV2(true);
+                                    setComparisonV2Error(null);
+                                    fetchWithTimeout(`${API_BASE}/api/intelligence-summary`, {}, 15000)
+                                        .then(r => {
+                                            if (!r.ok) throw new Error('Failed to load primary intelligence summary')
+                                            return r.json()
+                                        })
+                                        .then(d => {
+                                            setIntelligenceSummary(d)
+                                            if (d && Array.isArray(d.disease_snapshot) && d.disease_snapshot.length > 0) {
+                                                setComparisonV2Data(d.disease_snapshot)
+                                                setLoadingComparisonV2(false)
+                                            } else {
+                                                throw new Error('Empty disease snapshot')
+                                            }
+                                        })
+                                        .catch(err => {
+                                            console.warn('Retry primary failed, trying fallback...', err)
+                                            fetchWithTimeout(`${API_BASE}/api/disease-comparison-v2`, {}, 15000)
+                                                .then(r => {
+                                                    if (!r.ok) throw new Error('Failed to load fallback comparison data')
+                                                    return r.json()
+                                                })
+                                                .then(d => {
+                                                    setComparisonV2Data(Array.isArray(d.comparison) ? d.comparison : [])
+                                                })
+                                                .catch(e => {
+                                                    console.error('Both retries failed:', e)
+                                                    setComparisonV2Error('Comparison data temporarily unavailable.')
+                                                })
+                                                .finally(() => setLoadingComparisonV2(false))
+                                        })
+                                }}>
+                                    Retry Comparison Query
+                                </button>
                             </div>
                         ) : comparisonV2Data.length > 0 ? (
                             <div className="comparison-v2-grid">
@@ -426,7 +621,7 @@ export default function Dashboard() {
                                     const card = comparisonV2Data.find(item => item.disease === dKey);
                                     if (!card) return null;
                                     const meta = DISEASE_META[dKey] || { label: dKey, color: '#94a3b8' };
-
+ 
                                     if (card.error) {
                                         return (
                                             <div key={dKey} className={`comparison-v2-card disease-${dKey} has-error`} style={{ borderTop: `4px solid ${meta.color}` }}>
@@ -435,7 +630,7 @@ export default function Dashboard() {
                                             </div>
                                         );
                                     }
-
+ 
                                     return (
                                         <div key={dKey} className={`comparison-v2-card disease-${dKey}`} style={{ borderTop: `4px solid ${meta.color}` }}>
                                             <div className="comp-card-header">
@@ -444,20 +639,26 @@ export default function Dashboard() {
                                                     {card.forecast_trend === 'increasing' ? '↗ Increasing' : card.forecast_trend === 'decreasing' ? '↘ Decreasing' : '→ Stable'}
                                                 </span>
                                             </div>
-
+ 
                                             <div className="comp-card-stats">
                                                 <div className="comp-stat-row">
                                                     <span className="comp-stat-label">Total Cases</span>
                                                     <span className="comp-stat-val">{fmtN(card.total_cases)}</span>
                                                 </div>
                                                 <div className="comp-stat-row">
+                                                    <span className="comp-stat-label">Total Deaths</span>
+                                                    <span className="comp-stat-val">{fmtN(card.total_deaths)}</span>
+                                                </div>
+                                                <div className="comp-stat-row">
                                                     <span className="comp-stat-label">CFR (Fatality Rate)</span>
                                                     <span className="comp-stat-val font-warning">{card.case_fatality_rate}%</span>
                                                 </div>
-                                                <div className="comp-stat-row">
-                                                    <span className="comp-stat-label">Highest Burden State</span>
-                                                    <span className="comp-stat-val comp-highlight">{card.highest_burden_state}</span>
-                                                </div>
+                                                {card.highest_burden_state && (
+                                                    <div className="comp-stat-row">
+                                                        <span className="comp-stat-label">Highest Burden State</span>
+                                                        <span className="comp-stat-val comp-highlight">{card.highest_burden_state}</span>
+                                                    </div>
+                                                )}
                                                 <div className="comp-stat-row">
                                                     <span className="comp-stat-label">Top Risk Region</span>
                                                     <span className="comp-stat-val">
@@ -466,6 +667,10 @@ export default function Dashboard() {
                                                             {card.top_risk_level}
                                                         </span>
                                                     </span>
+                                                </div>
+                                                <div className="comp-stat-row">
+                                                    <span className="comp-stat-label">Top Risk Score</span>
+                                                    <span className="comp-stat-val font-warning">{card.top_risk_score != null ? Math.round(card.top_risk_score) : '—'}</span>
                                                 </div>
                                                 <div className="comp-stat-row border-top-dash">
                                                     <span className="comp-stat-label">Best Fit Model</span>
@@ -477,7 +682,7 @@ export default function Dashboard() {
                                 })}
                             </div>
                         ) : (
-                            <div className="intel-empty">No comparison data available</div>
+                            <div className="intel-empty">Comparison data temporarily unavailable.</div>
                         )}
                     </section>
 
@@ -592,34 +797,6 @@ export default function Dashboard() {
                                 Three models trained on historical data and projected 4 quarters beyond the last recorded quarter.
                             </p>
 
-                            {/* How to read box */}
-                            <div className="how-to-read">
-                                <div className="htr-title">How to read this chart</div>
-                                <div className="htr-grid">
-                                    <div className="htr-item">
-                                        <span className="htr-dot" style={{ background: '#fff' }} />
-                                        <div><strong>White line = Actual data</strong><br />Real reported cases up to the last available quarter.</div>
-                                    </div>
-                                    <div className="htr-item">
-                                        <span className="htr-dot" style={{ background: '#f5576c' }} />
-                                        <div><strong>Red dashed = ARIMA prediction</strong><br />Captures overall trend direction (declining / rising).</div>
-                                    </div>
-                                    <div className="htr-item">
-                                        <span className="htr-dot" style={{ background: '#4facfe' }} />
-                                        <div><strong>Blue dashed = SARIMA prediction</strong><br />Detects seasonal waves (e.g. monsoon spikes). May predict a resurgence if seasonal patterns existed historically.</div>
-                                    </div>
-                                    <div className="htr-item">
-                                        <span className="htr-dot" style={{ background: '#f9ca24' }} />
-                                        <div><strong>Yellow dashed = Linear Regression</strong><br />Baseline straight-line trend. Simple but interpretable.</div>
-                                    </div>
-                                </div>
-                                <div className="htr-insight">
-                                    <strong>Key insight:</strong> When models disagree, it means the disease pattern is complex.
-                                    SARIMA predicting a spike while ARIMA stays low often indicates a historical seasonal pattern
-                                    that may or may not repeat — this divergence itself is a valuable finding.
-                                </div>
-                            </div>
-
                             {loadingForecast && (
                                 <div className="loading-inline">
                                     <div className="spinner" />
@@ -627,8 +804,67 @@ export default function Dashboard() {
                                 </div>
                             )}
 
-                            {!loadingForecast && forecastData && !forecastData.error && zoomedForecastChart.length > 0 && (
+                            {!loadingForecast && !forecastRunClicked && (
+                                <div className="forecast-placeholder-card glass fade-in">
+                                    <div className="fpc-icon">📊</div>
+                                    <div className="fpc-content">
+                                        <h3 className="fpc-title">ARIMA &amp; SARIMA Projections</h3>
+                                        <p className="fpc-message">
+                                            Detailed statistical epidemiology forecasts are available on demand.
+                                            This runs interactive multi-model projections (ARIMA, SARIMA, and Linear Regression)
+                                            integrated with rolling-origin error analysis.
+                                        </p>
+                                        <button className="run-forecast-btn" onClick={runDetailedForecast}>
+                                            Run Detailed ARIMA/SARIMA Forecast
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {!loadingForecast && forecastRunClicked && forecastChartError && (
+                                <div className="forecast-error-card glass fade-in">
+                                    <div className="fec-icon">⚠️</div>
+                                    <div className="fec-content">
+                                        <h3 className="fec-title">Advanced Forecasting Offline</h3>
+                                        <p className="fec-message">{forecastChartError}</p>
+                                        <p className="fec-hint">
+                                            This is typically caused by missing mathematical modeling libraries (e.g., <code>statsmodels</code>) 
+                                            in the server's Python virtual environment, or insufficient historical training periods. 
+                                            The baseline historical surveillance grid and other dashboard intelligence modules remain fully operational.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {!loadingForecast && forecastRunClicked && !forecastChartError && forecastData && !forecastData.error && zoomedForecastChart.length > 0 && (
                                 <>
+                                    {/* How to read box */}
+                                    <div className="how-to-read">
+                                        <div className="htr-title">How to read this chart</div>
+                                        <div className="htr-grid">
+                                            <div className="htr-item">
+                                                <span className="htr-dot" style={{ background: '#fff' }} />
+                                                <div><strong>White line = Actual data</strong><br />Real reported cases up to the last available quarter.</div>
+                                            </div>
+                                            <div className="htr-item">
+                                                <span className="htr-dot" style={{ background: '#f5576c' }} />
+                                                <div><strong>Red dashed = ARIMA prediction</strong><br />Captures overall trend direction (declining / rising).</div>
+                                            </div>
+                                            <div className="htr-item">
+                                                <span className="htr-dot" style={{ background: '#4facfe' }} />
+                                                <div><strong>Blue dashed = SARIMA prediction</strong><br />Detects seasonal waves (e.g. monsoon spikes). May predict a resurgence if seasonal patterns existed historically.</div>
+                                            </div>
+                                            <div className="htr-item">
+                                                <span className="htr-dot" style={{ background: '#f9ca24' }} />
+                                                <div><strong>Yellow dashed = Linear Regression</strong><br />Baseline straight-line trend. Simple but interpretable.</div>
+                                            </div>
+                                        </div>
+                                        <div className="htr-insight">
+                                            <strong>Key insight:</strong> When models disagree, it means the disease pattern is complex.
+                                            SARIMA predicting a spike while ARIMA stays low often indicates a historical seasonal pattern
+                                            that may or may not repeat — this divergence itself is a valuable finding.
+                                        </div>
+                                    </div>
                                     {/* ── Zoomed Forecast Chart (main) ── */}
                                     <div className="chart-label">Forecast Window — Last 6 Quarters + Next 4 Predicted</div>
                                     <div style={{ height: 320 }}>
@@ -753,9 +989,7 @@ export default function Dashboard() {
                                 </>
                             )}
 
-                            {!loadingForecast && forecastData?.error && (
-                                <div className="error-banner">⚠️ {forecastData.error}</div>
-                            )}
+
                         </section>
                     )}
 

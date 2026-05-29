@@ -18,6 +18,7 @@ from services.intelligence_summary import generate_executive_summary
 from services.data_quality import inspect_data_quality
 from services.briefing import generate_briefing
 from services.model_explanation import generate_model_explanation
+from services.cache_utils import get_cached_or_compute
 
 app = Flask(__name__)
 CORS(app)
@@ -126,105 +127,125 @@ def forecast():
         return jsonify({"error": "disease_key and state required"}), 400
 
     try:
-        from statsmodels.tsa.arima.model import ARIMA
-        from statsmodels.tsa.statespace.sarimax import SARIMAX
-        from sklearn.linear_model import LinearRegression
+        # Check file existence upfront for fast 404
+        path = os.path.join(PROCESSED_DIR, disease_key, "standardized.csv")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"standardized.csv not found for disease_key={disease_key}")
 
-        df = load_standardized(disease_key)
-        df = df[df["state"] == state].copy()
-        df["time_index"] = pd.to_datetime(df["time_index"])
-        df = df.sort_values("time_index")
-        series = df.set_index("time_index")["cases"].astype(float)
+        def compute():
+            try:
+                from statsmodels.tsa.arima.model import ARIMA
+                from statsmodels.tsa.statespace.sarimax import SARIMAX
+            except ImportError as e:
+                raise ValueError("statsmodels module is not installed on the server. Please check backend dependencies.")
 
-        if len(series) < 8:
-            return jsonify({"error": "Not enough data points for forecasting (need ≥8)"}), 422
+            from sklearn.linear_model import LinearRegression
 
-        historical = [{"date": str(idx.date()), "actual": float(v)} for idx, v in series.items()]
-        last_date = series.index[-1]
-        future_dates = pd.date_range(start=last_date + pd.DateOffset(months=3), periods=steps, freq="QS")
-        future_dates_str = [str(d.date()) for d in future_dates]
+            df = load_standardized(disease_key)
+            df = df[df["state"] == state].copy()
+            
+            if df.empty:
+                raise ValueError(f"No historical data found for state '{state}' and disease '{disease_key}'")
 
-        results = {}
+            df["time_index"] = pd.to_datetime(df["time_index"])
+            df = df.sort_values("time_index")
+            series = df.set_index("time_index")["cases"].astype(float)
 
-        # ── ARIMA(2,1,2) ──────────────────────────────────────
-        try:
-            arima_model = ARIMA(series, order=(2, 1, 2)).fit()
-            arima_fc = arima_model.get_forecast(steps=steps)
-            arima_mean = arima_fc.predicted_mean.values.tolist()
-            arima_ci = arima_fc.conf_int(alpha=0.2).values.tolist()
-            arima_aic = round(arima_model.aic, 2)
-            in_sample = arima_model.fittedvalues.values
-            arima_rmse = round(float(np.sqrt(np.mean((series.values[1:] - in_sample[1:]) ** 2))), 2)
-            arima_mae = round(float(np.mean(np.abs(series.values[1:] - in_sample[1:]))), 2)
-            results["arima"] = {
-                "forecast": [max(0, v) for v in arima_mean],
-                "lower": [max(0, ci[0]) for ci in arima_ci],
-                "upper": [ci[1] for ci in arima_ci],
-                "aic": arima_aic,
-                "rmse": arima_rmse,
-                "mae": arima_mae,
-                "description": "ARIMA(2,1,2): Auto-Regressive Integrated Moving Average. Captures non-seasonal trends and autocorrelation patterns.",
+            if len(series) < 8:
+                raise ValueError("Not enough data points for forecasting (need ≥8)")
+
+            historical = [{"date": str(idx.date()), "actual": float(v)} for idx, v in series.items()]
+            last_date = series.index[-1]
+            future_dates = pd.date_range(start=last_date + pd.DateOffset(months=3), periods=steps, freq="QS")
+            future_dates_str = [str(d.date()) for d in future_dates]
+
+            results = {}
+
+            # ── ARIMA(2,1,2) ──────────────────────────────────────
+            try:
+                arima_model = ARIMA(series, order=(2, 1, 2)).fit()
+                arima_fc = arima_model.get_forecast(steps=steps)
+                arima_mean = arima_fc.predicted_mean.values.tolist()
+                arima_ci = arima_fc.conf_int(alpha=0.2).values.tolist()
+                arima_aic = round(arima_model.aic, 2)
+                in_sample = arima_model.fittedvalues.values
+                arima_rmse = round(float(np.sqrt(np.mean((series.values[1:] - in_sample[1:]) ** 2))), 2)
+                arima_mae = round(float(np.mean(np.abs(series.values[1:] - in_sample[1:]))), 2)
+                results["arima"] = {
+                    "forecast": [max(0, v) for v in arima_mean],
+                    "lower": [max(0, ci[0]) for ci in arima_ci],
+                    "upper": [ci[1] for ci in arima_ci],
+                    "aic": arima_aic,
+                    "rmse": arima_rmse,
+                    "mae": arima_mae,
+                    "description": "ARIMA(2,1,2): Auto-Regressive Integrated Moving Average. Captures non-seasonal trends and autocorrelation patterns.",
+                }
+            except Exception as e:
+                results["arima"] = {"error": str(e)}
+
+            # ── SARIMA(1,1,1)(1,1,0,4) ────────────────────────────
+            try:
+                sarima_model = SARIMAX(series, order=(1, 1, 1), seasonal_order=(1, 1, 0, 4)).fit(disp=False)
+                sarima_fc = sarima_model.get_forecast(steps=steps)
+                sarima_mean = sarima_fc.predicted_mean.values.tolist()
+                sarima_ci = sarima_fc.conf_int(alpha=0.2).values.tolist()
+                sarima_aic = round(sarima_model.aic, 2)
+                sarima_fitted = sarima_model.fittedvalues.values
+                trim = min(len(series), len(sarima_fitted))
+                sarima_rmse = round(float(np.sqrt(np.mean((series.values[-trim:] - sarima_fitted[-trim:]) ** 2))), 2)
+                sarima_mae = round(float(np.mean(np.abs(series.values[-trim:] - sarima_fitted[-trim:]))), 2)
+                results["sarima"] = {
+                    "forecast": [max(0, v) for v in sarima_mean],
+                    "lower": [max(0, ci[0]) for ci in sarima_ci],
+                    "upper": [ci[1] for ci in sarima_ci],
+                    "aic": sarima_aic,
+                    "rmse": sarima_rmse,
+                    "mae": sarima_mae,
+                    "description": "SARIMA(1,1,1)(1,1,0,4): Seasonal ARIMA with quarterly seasonality. Ideal for diseases with regular seasonal outbreaks.",
+                }
+            except Exception as e:
+                results["sarima"] = {"error": str(e)}
+
+            # ── Linear Regression ─────────────────────────────────
+            try:
+                X = np.arange(len(series)).reshape(-1, 1)
+                y = series.values
+                lr = LinearRegression().fit(X, y)
+                X_future = np.arange(len(series), len(series) + steps).reshape(-1, 1)
+                lr_pred = lr.predict(X_future).tolist()
+                lr_fitted = lr.predict(X)
+                lr_rmse = round(float(np.sqrt(np.mean((y - lr_fitted) ** 2))), 2)
+                lr_mae = round(float(np.mean(np.abs(y - lr_fitted))), 2)
+                lr_r2 = round(float(lr.score(X, y)), 4)
+                results["linear"] = {
+                    "forecast": [max(0, v) for v in lr_pred],
+                    "lower": [max(0, v * 0.8) for v in lr_pred],
+                    "upper": [v * 1.2 for v in lr_pred],
+                    "rmse": lr_rmse,
+                    "mae": lr_mae,
+                    "r2": lr_r2,
+                    "slope": round(float(lr.coef_[0]), 4),
+                    "description": "Linear Regression: Baseline trend model. Captures the overall direction (increasing/decreasing) of disease burden.",
+                }
+            except Exception as e:
+                results["linear"] = {"error": str(e)}
+
+            return {
+                "disease": disease_key,
+                "state": state,
+                "historical": historical,
+                "future_dates": future_dates_str,
+                "models": results,
             }
-        except Exception as e:
-            results["arima"] = {"error": str(e)}
 
-        # ── SARIMA(1,1,1)(1,1,0,4) ────────────────────────────
-        try:
-            sarima_model = SARIMAX(series, order=(1, 1, 1), seasonal_order=(1, 1, 0, 4)).fit(disp=False)
-            sarima_fc = sarima_model.get_forecast(steps=steps)
-            sarima_mean = sarima_fc.predicted_mean.values.tolist()
-            sarima_ci = sarima_fc.conf_int(alpha=0.2).values.tolist()
-            sarima_aic = round(sarima_model.aic, 2)
-            sarima_fitted = sarima_model.fittedvalues.values
-            trim = min(len(series), len(sarima_fitted))
-            sarima_rmse = round(float(np.sqrt(np.mean((series.values[-trim:] - sarima_fitted[-trim:]) ** 2))), 2)
-            sarima_mae = round(float(np.mean(np.abs(series.values[-trim:] - sarima_fitted[-trim:]))), 2)
-            results["sarima"] = {
-                "forecast": [max(0, v) for v in sarima_mean],
-                "lower": [max(0, ci[0]) for ci in sarima_ci],
-                "upper": [ci[1] for ci in sarima_ci],
-                "aic": sarima_aic,
-                "rmse": sarima_rmse,
-                "mae": sarima_mae,
-                "description": "SARIMA(1,1,1)(1,1,0,4): Seasonal ARIMA with quarterly seasonality. Ideal for diseases with regular seasonal outbreaks.",
-            }
-        except Exception as e:
-            results["sarima"] = {"error": str(e)}
-
-        # ── Linear Regression ─────────────────────────────────
-        try:
-            X = np.arange(len(series)).reshape(-1, 1)
-            y = series.values
-            lr = LinearRegression().fit(X, y)
-            X_future = np.arange(len(series), len(series) + steps).reshape(-1, 1)
-            lr_pred = lr.predict(X_future).tolist()
-            lr_fitted = lr.predict(X)
-            lr_rmse = round(float(np.sqrt(np.mean((y - lr_fitted) ** 2))), 2)
-            lr_mae = round(float(np.mean(np.abs(y - lr_fitted))), 2)
-            lr_r2 = round(float(lr.score(X, y)), 4)
-            results["linear"] = {
-                "forecast": [max(0, v) for v in lr_pred],
-                "lower": [max(0, v * 0.8) for v in lr_pred],
-                "upper": [v * 1.2 for v in lr_pred],
-                "rmse": lr_rmse,
-                "mae": lr_mae,
-                "r2": lr_r2,
-                "slope": round(float(lr.coef_[0]), 4),
-                "description": "Linear Regression: Baseline trend model. Captures the overall direction (increasing/decreasing) of disease burden.",
-            }
-        except Exception as e:
-            results["linear"] = {"error": str(e)}
-
-        return jsonify({
-            "disease": disease_key,
-            "state": state,
-            "historical": historical,
-            "future_dates": future_dates_str,
-            "models": results,
-        })
+        cache_key = f"forecast:{disease_key}:{state}:{steps}"
+        results = get_cached_or_compute(cache_key, compute, ttl_seconds=600)
+        return jsonify(results)
 
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -303,17 +324,22 @@ def model_leaderboard():
     """
     disease = request.args.get("disease", "dengue")
     try:
-        # Load the relevant dataset
-        df = load_standardized(disease)
-        
-        # Build the leaderboard using the service
-        leaderboard = build_model_leaderboard(df)
-        
-        return jsonify({
-            "disease": disease,
-            "count": len(leaderboard) if isinstance(leaderboard, list) else 0,
-            "leaderboard": leaderboard
-        })
+        path = os.path.join(PROCESSED_DIR, disease, "standardized.csv")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"standardized.csv not found for disease_key={disease}")
+            
+        def compute():
+            df = load_standardized(disease)
+            leaderboard = build_model_leaderboard(df)
+            return {
+                "disease": disease,
+                "count": len(leaderboard) if isinstance(leaderboard, list) else 0,
+                "leaderboard": leaderboard
+            }
+            
+        cache_key = f"model-leaderboard:{disease}"
+        results = get_cached_or_compute(cache_key, compute, ttl_seconds=600)
+        return jsonify(results)
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as e:
@@ -327,81 +353,86 @@ def best_model_forecast():
     """
     disease = request.args.get("disease", "dengue")
     try:
-        # 1. Load data
-        df = load_standardized(disease)
-        
-        # 2. Get leaderboard to find the best model (Rank 1)
-        leaderboard = build_model_leaderboard(df)
-        if not leaderboard or (isinstance(leaderboard, list) and "error" in leaderboard[0]):
-            error_msg = leaderboard[0]["error"] if leaderboard else "Unknown error"
-            return jsonify({"error": f"Leaderboard generation failed: {error_msg}"}), 500
+        path = os.path.join(PROCESSED_DIR, disease, "standardized.csv")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"standardized.csv not found for disease_key={disease}")
             
-        best_model_data = leaderboard[0]
-        model_name = best_model_data["model_name"]
-        
-        # 3. Generate forecasts for all ML models
-        ml_results = forecast_ml_models(df, steps=4)
-        if "error" in ml_results:
-            return jsonify({"error": f"Forecast generation failed: {ml_results['error']}"}), 500
+        def compute():
+            df = load_standardized(disease)
             
-        # 4. Map model name to internal key
-        name_to_key = {
-            "Linear Regression": "linear",
-            "Ridge Regression": "ridge",
-            "Random Forest Regressor": "random_forest",
-            "Gradient Boosting Regressor": "gradient_boosting"
-        }
-        model_key = name_to_key.get(model_name)
-        
-        if not model_key or model_key not in ml_results["predictions"]:
-            return jsonify({"error": f"Prediction key '{model_key}' not found for model '{model_name}'"}), 500
+            leaderboard = build_model_leaderboard(df)
+            if not leaderboard or (isinstance(leaderboard, list) and "error" in leaderboard[0]):
+                error_msg = leaderboard[0]["error"] if leaderboard else "Unknown error"
+                raise ValueError(f"Leaderboard generation failed: {error_msg}")
+                
+            best_model_data = leaderboard[0]
+            model_name = best_model_data["model_name"]
             
-        predictions = ml_results["predictions"][model_key]
-        future_dates = ml_results["future_dates"]
-        
-        # 5. Format the specific forecast for the best model with uncertainty bands
-        forecast_payload = []
-        rmse = best_model_data.get("average_rmse", 0.0)
-        mape = best_model_data.get("average_mape", 100.0)
-        
-        # Determine confidence level based on MAPE
-        if mape <= 20:
-            confidence = "High"
-        elif mape <= 50:
-            confidence = "Medium"
-        else:
-            confidence = "Low"
-
-        for i in range(len(predictions)):
-            pred_val = float(predictions[i])
-            
-            # Confidence Band Formula: pred +/- 1.96 * RMSE
-            lower = max(0.0, pred_val - (1.96 * rmse))
-            upper = pred_val + (1.96 * rmse)
-            
-            forecast_payload.append({
-                "date": future_dates[i],
-                "predicted_cases": round(max(0.0, pred_val), 2),
-                "lower_bound": round(lower, 2),
-                "upper_bound": round(upper, 2),
-                "confidence_level": confidence
-            })
-            
-        return jsonify({
-            "disease": disease,
-            "best_model": model_name,
-            "model_key": model_key,
-            "selection_reason": best_model_data["reason"],
-            "future_dates": future_dates,
-            "forecast": forecast_payload,
-            "leaderboard_summary": {
-                "average_rmse": best_model_data["average_rmse"],
-                "average_mae": best_model_data["average_mae"],
-                "average_mape": best_model_data["average_mape"],
-                "number_of_backtest_windows": best_model_data["number_of_backtest_windows"]
+            ml_results = forecast_ml_models(df, steps=4)
+            if "error" in ml_results:
+                raise ValueError(f"Forecast generation failed: {ml_results['error']}")
+                
+            name_to_key = {
+                "Linear Regression": "linear",
+                "Ridge Regression": "ridge",
+                "Random Forest Regressor": "random_forest",
+                "Gradient Boosting Regressor": "gradient_boosting"
             }
-        })
+            model_key = name_to_key.get(model_name)
+            
+            if not model_key or model_key not in ml_results["predictions"]:
+                raise ValueError(f"Prediction key '{model_key}' not found for model '{model_name}'")
+                
+            predictions = ml_results["predictions"][model_key]
+            future_dates = ml_results["future_dates"]
+            
+            forecast_payload = []
+            rmse = best_model_data.get("average_rmse", 0.0)
+            mape = best_model_data.get("average_mape", 100.0)
+            
+            if mape <= 20:
+                confidence = "High"
+            elif mape <= 50:
+                confidence = "Medium"
+            else:
+                confidence = "Low"
+
+            for i in range(len(predictions)):
+                pred_val = float(predictions[i])
+                lower = max(0.0, pred_val - (1.96 * rmse))
+                upper = pred_val + (1.96 * rmse)
+                
+                forecast_payload.append({
+                    "date": future_dates[i],
+                    "predicted_cases": round(max(0.0, pred_val), 2),
+                    "lower_bound": round(lower, 2),
+                    "upper_bound": round(upper, 2),
+                    "confidence_level": confidence
+                })
+                
+            return {
+                "disease": disease,
+                "best_model": model_name,
+                "model_key": model_key,
+                "selection_reason": best_model_data["reason"],
+                "future_dates": future_dates,
+                "forecast": forecast_payload,
+                "leaderboard_summary": {
+                    "average_rmse": best_model_data["average_rmse"],
+                    "average_mae": best_model_data["average_mae"],
+                    "average_mape": best_model_data["average_mape"],
+                    "number_of_backtest_windows": best_model_data["number_of_backtest_windows"]
+                }
+            }
+            
+        cache_key = f"best-model-forecast:{disease}"
+        results = get_cached_or_compute(cache_key, compute, ttl_seconds=600)
+        return jsonify(results)
         
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -486,20 +517,27 @@ def disease_comparison_v2():
     Returns a high-level comparison across COVID, Dengue, and Malaria.
     """
     try:
-        # Load data for all three major diseases
-        data_map = {
-            "covid": load_standardized("covid"),
-            "dengue": load_standardized("dengue"),
-            "malaria": load_standardized("malaria")
-        }
-        
-        # Run the comparison engine
-        comparison = compare_diseases(data_map)
-        
-        return jsonify({
-            "count": len(comparison),
-            "comparison": comparison
-        })
+        # Verify file existence upfront for fast 404
+        for d in ["covid", "dengue", "malaria"]:
+            path = os.path.join(PROCESSED_DIR, d, "standardized.csv")
+            if not os.path.exists(path):
+                raise FileNotFoundError(f"standardized.csv not found for disease_key={d}")
+                
+        def compute():
+            data_map = {
+                "covid": load_standardized("covid"),
+                "dengue": load_standardized("dengue"),
+                "malaria": load_standardized("malaria")
+            }
+            comparison = compare_diseases(data_map)
+            return {
+                "count": len(comparison),
+                "comparison": comparison
+            }
+            
+        cache_key = "disease-comparison-v2"
+        results = get_cached_or_compute(cache_key, compute, ttl_seconds=600)
+        return jsonify(results)
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as e:
@@ -512,8 +550,12 @@ def intelligence_summary():
     Returns a government-style Executive Intelligence Summary across major diseases.
     """
     try:
-        summary = generate_executive_summary()
-        return jsonify(summary)
+        def compute():
+            return generate_executive_summary()
+            
+        cache_key = "intelligence-summary"
+        results = get_cached_or_compute(cache_key, compute, ttl_seconds=600)
+        return jsonify(results)
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
     except Exception as e:
@@ -657,7 +699,11 @@ def data_quality():
     Returns data quality and credibility metrics across standardized datasets.
     """
     try:
-        results = inspect_data_quality(PROCESSED_DIR)
+        def compute():
+            return inspect_data_quality(PROCESSED_DIR)
+            
+        cache_key = "data-quality"
+        results = get_cached_or_compute(cache_key, compute, ttl_seconds=600)
         return jsonify(results)
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
@@ -673,7 +719,11 @@ def briefing():
     Returns an executive early warning public-health brief.
     """
     try:
-        results = generate_briefing(PROCESSED_DIR)
+        def compute():
+            return generate_briefing(PROCESSED_DIR)
+            
+        cache_key = "briefing"
+        results = get_cached_or_compute(cache_key, compute, ttl_seconds=600)
         return jsonify(results)
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
@@ -690,7 +740,15 @@ def model_explanation():
     """
     disease = request.args.get("disease", "dengue")
     try:
-        results = generate_model_explanation(PROCESSED_DIR, disease)
+        path = os.path.join(PROCESSED_DIR, disease, "standardized.csv")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"standardized.csv not found for disease_key={disease}")
+            
+        def compute():
+            return generate_model_explanation(PROCESSED_DIR, disease)
+            
+        cache_key = f"model-explanation:{disease}"
+        results = get_cached_or_compute(cache_key, compute, ttl_seconds=600)
         return jsonify(results)
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
